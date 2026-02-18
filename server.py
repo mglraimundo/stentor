@@ -50,7 +50,10 @@ def start_ffplay() -> subprocess.Popen | None:
         if AUDIO_DEVICE:
             env["AUDIODEV"] = AUDIO_DEVICE
         proc = subprocess.Popen(
-            ["ffplay", "-nodisp", "-autoexit", "-af", f"volume={VOLUME_BOOST},aformat=channel_layouts=stereo", "-i", "pipe:0"],
+            ["ffplay", "-nodisp", "-autoexit",
+             "-fflags", "nobuffer", "-analyzeduration", "0", "-probesize", "32",
+             "-af", f"volume={VOLUME_BOOST},alimiter=limit=1:attack=5:release=50,aformat=channel_layouts=stereo",
+             "-i", "pipe:0"],
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

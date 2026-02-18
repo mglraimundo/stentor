@@ -348,7 +348,15 @@
         async function ensureMicrophone() {
             if (mediaStream) return true;
             try {
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1,
+                        sampleRate: 48000,
+                    }
+                });
                 return true;
             } catch (e) {
                 showError("Permissão de microfone negada. Verifique as definições do navegador.");
@@ -362,6 +370,7 @@
             try {
                 mediaRecorder = new MediaRecorder(mediaStream, {
                     mimeType: "audio/webm;codecs=opus",
+                    audioBitsPerSecond: 64000,
                 });
             } catch (e) {
                 // Fallback if specific mime not supported
