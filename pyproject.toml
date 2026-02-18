@@ -1,0 +1,14 @@
+[project]
+name = "stentor"
+version = "0.1.0"
+description = "Push-to-talk waiting room broadcast system"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "websockets",
+    "python-dotenv",
+]
+
+[project.scripts]
+stentor = "server:main"

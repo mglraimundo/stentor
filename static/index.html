@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stentor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f3f4f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            padding: 2.5rem 2rem;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            display: inline-block;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #2563eb;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 0.6rem 1.8rem;
+            margin-bottom: 2rem;
+        }
+
+        footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+
+        footer a {
+            color: #6b7280;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        footer a:hover {
+            color: #2563eb;
+        }
+
+        .tooltip-wrap {
+            position: relative;
+            display: inline-block;
+        }
+
+        .tooltip-wrap .tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #1f2937;
+            color: #f3f4f6;
+            font-size: 0.7rem;
+            font-weight: 400;
+            line-height: 1.5;
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            width: 240px;
+            text-align: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        .tooltip-wrap .tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #1f2937;
+        }
+
+        .tooltip-wrap:hover .tooltip {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            min-height: 1.75rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.ready { background: #9ca3af; }
+        .status-dot.live { background: #22c55e; animation: pulse 1s infinite; }
+        .status-dot.busy { background: #ef4444; }
+        .status-dot.error { background: #ef4444; }
+        .status-dot.disconnected { background: #f59e0b; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .btn-talk {
+            width: 100%;
+            padding: 1.25rem 1rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            transition: background 0.15s, transform 0.1s;
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .btn-talk:active:not(:disabled),
+        .btn-talk.active {
+            background: #22c55e;
+            transform: scale(0.97);
+        }
+
+        .btn-talk:disabled {
+            background: #d1d5db;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .btn-hint {
+            display: block;
+            margin-top: 0.35rem;
+            font-size: 0.8rem;
+            font-weight: 400;
+            opacity: 0.8;
+        }
+
+        .timer {
+            margin-top: 1.5rem;
+            font-size: 2rem;
+            font-weight: 700;
+            color: #111827;
+            min-height: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .timer-label {
+            font-size: 0.85rem;
+            font-weight: 400;
+            color: #6b7280;
+        }
+
+        .timer.warning {
+            color: #ef4444;
+        }
+
+        .error-msg {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #991b1b;
+            font-size: 0.9rem;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1 id="app-title">Stentor</h1>
+
+        <div class="status">
+            <span class="status-dot ready" id="status-dot"></span>
+            <span id="status-text">A ligar...</span>
+        </div>
+
+        <button class="btn-talk" id="btn-talk" disabled>
+            Manter premido para falar
+            <span class="btn-hint">ou manter Espaço premido</span>
+        </button>
+
+        <div class="timer" id="timer"></div>
+
+        <div class="error-msg" id="error-msg"></div>
+    </div>
+
+    <footer>
+        <span class="tooltip-wrap">
+            <a href="https://github.com/mglraimundo/stentor" target="_blank">Stentor</a>
+            <span class="tooltip">In Greek mythology, Stentor was a herald during the Trojan War whose voice was as powerful as fifty men.</span>
+        </span><br>
+        Desenvolvido por Miguel Raimundo
+    </footer>
+
+    <script>
+    (function () {
+        // --- Config ---
+        let config = {
+            app_name: "Stentor",
+            favicon_letter: "S",
+            favicon_bg_color: "#2563EB",
+            favicon_text_color: "#FFFFFF",
+            broadcast_timeout_seconds: 20,
+        };
+
+        // --- DOM ---
+        const appTitle = document.getElementById("app-title");
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+        const btnTalk = document.getElementById("btn-talk");
+        const timerEl = document.getElementById("timer");
+        const errorMsg = document.getElementById("error-msg");
+
+        // --- State ---
+        let ws = null;
+        let myClientId = null;
+        let mediaStream = null;
+        let mediaRecorder = null;
+        let isBroadcasting = false;
+        let isRequesting = false;
+        let countdownInterval = null;
+        let secondsRemaining = 0;
+        let lastReleaseTime = 0;
+        let spaceHeld = false;
+        let mouseHeld = false;
+
+        const DEBOUNCE_MS = 500;
+        const RECONNECT_MS = 3000;
+
+        // --- Favicon ---
+        function setFavicon(letter, bgColor, textColor) {
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+                <circle cx="32" cy="32" r="32" fill="${bgColor}"/>
+                <text x="32" y="32" dy=".35em" text-anchor="middle"
+                      font-family="sans-serif" font-weight="bold" font-size="36"
+                      fill="${textColor}">${letter}</text>
+            </svg>`;
+            const blob = new Blob([svg], { type: "image/svg+xml" });
+            const url = URL.createObjectURL(blob);
+            let link = document.querySelector("link[rel='icon']");
+            if (!link) {
+                link = document.createElement("link");
+                link.rel = "icon";
+                document.head.appendChild(link);
+            }
+            link.href = url;
+        }
+
+        // --- Config fetch ---
+        async function loadConfig() {
+            try {
+                const resp = await fetch("/config");
+                config = await resp.json();
+            } catch (e) {
+                console.warn("Failed to load /config, using defaults");
+            }
+            document.title = config.app_name;
+            appTitle.textContent = config.app_name;
+            setFavicon(config.favicon_letter, config.favicon_bg_color, config.favicon_text_color);
+        }
+
+        // --- UI helpers ---
+        function setStatus(state, text) {
+            statusDot.className = "status-dot " + state;
+            statusText.textContent = text;
+        }
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.style.display = "block";
+        }
+
+        function hideError() {
+            errorMsg.style.display = "none";
+        }
+
+        function updateTimer() {
+            if (!isBroadcasting) {
+                timerEl.innerHTML = "";
+                timerEl.classList.remove("warning");
+                return;
+            }
+            const warn = secondsRemaining <= 5;
+            timerEl.classList.toggle("warning", warn);
+            timerEl.innerHTML =
+                `<span class="timer-label">${warn ? "A terminar..." : "Tempo restante"}</span>` +
+                `<span>${secondsRemaining}s</span>`;
+        }
+
+        function startCountdown(seconds) {
+            stopCountdown();
+            secondsRemaining = seconds;
+            updateTimer();
+            countdownInterval = setInterval(function () {
+                secondsRemaining = Math.max(0, secondsRemaining - 1);
+                updateTimer();
+            }, 1000);
+        }
+
+        function stopCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+            timerEl.innerHTML = "";
+            timerEl.classList.remove("warning");
+        }
+
+        // --- Microphone ---
+        async function ensureMicrophone() {
+            if (mediaStream) return true;
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                return true;
+            } catch (e) {
+                showError("Permissão de microfone negada. Verifique as definições do navegador.");
+                btnTalk.disabled = true;
+                return false;
+            }
+        }
+
+        function startRecording() {
+            if (!mediaStream || !ws) return;
+            try {
+                mediaRecorder = new MediaRecorder(mediaStream, {
+                    mimeType: "audio/webm;codecs=opus",
+                });
+            } catch (e) {
+                // Fallback if specific mime not supported
+                mediaRecorder = new MediaRecorder(mediaStream);
+            }
+            mediaRecorder.ondataavailable = function (event) {
+                if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isBroadcasting) {
+                    ws.send(event.data);
+                }
+            };
+            mediaRecorder.start(250);
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                try { mediaRecorder.stop(); } catch (e) {}
+            }
+            mediaRecorder = null;
+        }
+
+        // --- Broadcast ---
+        function startBroadcast() {
+            if (isBroadcasting || isRequesting) return;
+            if (Date.now() - lastReleaseTime < DEBOUNCE_MS) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+            isRequesting = true;
+            ws.send(JSON.stringify({ type: "request_broadcast" }));
+        }
+
+        function stopBroadcast() {
+            lastReleaseTime = Date.now();
+            isRequesting = false;
+
+            if (!isBroadcasting) return;
+            isBroadcasting = false;
+            btnTalk.classList.remove("active");
+            stopRecording();
+            stopCountdown();
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "stop_broadcast" }));
+            }
+
+            setStatus("ready", "Pronto");
+        }
+
+        function onBroadcastGranted() {
+            isRequesting = false;
+            isBroadcasting = true;
+            btnTalk.classList.add("active");
+            setStatus("live", "Em direto");
+            hideError();
+            startCountdown(config.broadcast_timeout_seconds);
+            startRecording();
+        }
+
+        function onBroadcastDenied() {
+            isRequesting = false;
+            setStatus("busy", "Altifalante ocupado — aguarde");
+            setTimeout(function () {
+                if (!isBroadcasting) {
+                    setStatus("ready", "Pronto");
+                }
+            }, 2000);
+        }
+
+        function onBroadcastEnded() {
+            isBroadcasting = false;
+            isRequesting = false;
+            btnTalk.classList.remove("active");
+            stopRecording();
+            stopCountdown();
+            setStatus("ready", "Transmissão terminada");
+            setTimeout(function () {
+                if (!isBroadcasting) {
+                    setStatus("ready", "Pronto");
+                }
+            }, 2000);
+        }
+
+        function onStateUpdate(data) {
+            if (isBroadcasting) {
+                // We are the active broadcaster, update timer from server
+                if (data.seconds_remaining !== null) {
+                    secondsRemaining = data.seconds_remaining;
+                    updateTimer();
+                }
+                return;
+            }
+
+            if (data.is_active) {
+                setStatus("busy", "Altifalante ocupado — aguarde");
+                btnTalk.disabled = true;
+            } else {
+                setStatus("ready", "Pronto");
+                btnTalk.disabled = !mediaStream;
+            }
+        }
+
+        // --- WebSocket ---
+        let reconnectTimeout = null;
+
+        function connect() {
+            const proto = location.protocol === "https:" ? "wss:" : "ws:";
+            ws = new WebSocket(proto + "//" + location.host + "/ws");
+
+            ws.onopen = function () {
+                hideError();
+                setStatus("ready", "Pronto");
+                btnTalk.disabled = !mediaStream;
+            };
+
+            ws.onmessage = function (event) {
+                if (typeof event.data !== "string") return;
+                const data = JSON.parse(event.data);
+
+                switch (data.type) {
+                    case "welcome":
+                        myClientId = data.client_id;
+                        break;
+                    case "broadcast_granted":
+                        if (data.client_id === myClientId) {
+                            onBroadcastGranted();
+                        }
+                        break;
+                    case "broadcast_denied":
+                        onBroadcastDenied();
+                        break;
+                    case "broadcast_ended":
+                        onBroadcastEnded();
+                        break;
+                    case "state_update":
+                        onStateUpdate(data);
+                        break;
+                }
+            };
+
+            ws.onclose = function () {
+                if (isBroadcasting) stopBroadcast();
+                setStatus("disconnected", "Desligado — a tentar reconectar...");
+                btnTalk.disabled = true;
+                scheduleReconnect();
+            };
+
+            ws.onerror = function () {
+                // onclose will fire after this
+            };
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimeout) return;
+            reconnectTimeout = setTimeout(function () {
+                reconnectTimeout = null;
+                connect();
+            }, RECONNECT_MS);
+        }
+
+        // --- Input handlers ---
+        function isInputFocused() {
+            const tag = document.activeElement && document.activeElement.tagName;
+            return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+        }
+
+        // Mouse / touch
+        btnTalk.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+            mouseHeld = true;
+            startBroadcast();
+        });
+
+        btnTalk.addEventListener("touchstart", function (e) {
+            e.preventDefault();
+            mouseHeld = true;
+            startBroadcast();
+        }, { passive: false });
+
+        function onPointerRelease() {
+            if (mouseHeld) {
+                mouseHeld = false;
+                stopBroadcast();
+            }
+        }
+
+        document.addEventListener("mouseup", onPointerRelease);
+        document.addEventListener("touchend", onPointerRelease);
+        btnTalk.addEventListener("mouseleave", function () {
+            if (mouseHeld) {
+                mouseHeld = false;
+                stopBroadcast();
+            }
+        });
+
+        // Keyboard (Space)
+        document.addEventListener("keydown", function (e) {
+            if (e.code !== "Space" || e.repeat || isInputFocused()) return;
+            e.preventDefault();
+            if (!spaceHeld) {
+                spaceHeld = true;
+                startBroadcast();
+            }
+        });
+
+        document.addEventListener("keyup", function (e) {
+            if (e.code !== "Space" || isInputFocused()) return;
+            e.preventDefault();
+            if (spaceHeld) {
+                spaceHeld = false;
+                stopBroadcast();
+            }
+        });
+
+        // --- Init ---
+        async function init() {
+            await loadConfig();
+            await ensureMicrophone();
+            connect();
+        }
+
+        init();
+    })();
+    </script>
+</body>
+</html>
