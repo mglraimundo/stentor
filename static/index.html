@@ -260,6 +260,7 @@
         let lastReleaseTime = 0;
         let spaceHeld = false;
         let mouseHeld = false;
+        let stopBroadcastTimer = null;
 
         const DEBOUNCE_MS = 500;
         const RECONNECT_MS = 3000;
@@ -396,16 +397,29 @@
             isRequesting = false;
 
             if (!isBroadcasting) return;
-            isBroadcasting = false;
             btnTalk.classList.remove("active");
-            stopRecording();
             stopCountdown();
-
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: "stop_broadcast" }));
-            }
-
             setStatus("ready", "Pronto");
+
+            // Keep isBroadcasting = true for 1s tail so chunks keep being sent
+            stopBroadcastTimer = setTimeout(function () {
+                stopBroadcastTimer = null;
+                isBroadcasting = false;
+                stopRecording();
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "stop_broadcast" }));
+                }
+            }, 1000);
+        }
+
+        function forceStopBroadcast() {
+            if (stopBroadcastTimer !== null) {
+                clearTimeout(stopBroadcastTimer);
+                stopBroadcastTimer = null;
+            }
+            isBroadcasting = false;
+            isRequesting = false;
+            stopRecording();
         }
 
         function onBroadcastGranted() {
@@ -429,10 +443,8 @@
         }
 
         function onBroadcastEnded() {
-            isBroadcasting = false;
-            isRequesting = false;
+            forceStopBroadcast();
             btnTalk.classList.remove("active");
-            stopRecording();
             stopCountdown();
             setStatus("ready", "Transmissão terminada");
             setTimeout(function () {
@@ -500,7 +512,7 @@
             };
 
             ws.onclose = function () {
-                if (isBroadcasting) stopBroadcast();
+                if (isBroadcasting || stopBroadcastTimer !== null) forceStopBroadcast();
                 setStatus("disconnected", "Desligado — a tentar reconectar...");
                 btnTalk.disabled = true;
                 scheduleReconnect();
