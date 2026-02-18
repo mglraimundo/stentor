@@ -200,6 +200,76 @@
             font-size: 0.9rem;
             display: none;
         }
+
+        .mic-controls {
+            margin-bottom: 1rem;
+        }
+
+        .mic-selector-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .mic-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            color: #6b7280;
+        }
+
+        .mic-select {
+            flex: 1;
+            min-width: 0;
+            padding: 0.4rem 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: #374151;
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .mic-select:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+        }
+
+        .mic-select:disabled {
+            background: #f3f4f6;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .btn-mute {
+            width: 36px;
+            height: 36px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: #fff;
+            cursor: pointer;
+            color: #6b7280;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+
+        .btn-mute:hover {
+            background: #f3f4f6;
+        }
+
+        .btn-mute.muted {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: #ef4444;
+        }
+
+        .btn-mute.muted:hover {
+            background: #fee2e2;
+        }
     </style>
 </head>
 <body>
@@ -209,6 +279,35 @@
         <div class="status">
             <span class="status-dot ready" id="status-dot"></span>
             <span id="status-text">A ligar...</span>
+        </div>
+
+        <div class="mic-controls">
+            <div class="mic-selector-row">
+                <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                <select id="mic-select" class="mic-select">
+                    <option value="">A carregar...</option>
+                </select>
+                <button id="btn-mute" class="btn-mute" title="Silenciar microfone (M)">
+                    <svg id="mute-icon-on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                        <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .67-.1 1.32-.27 1.93"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                    <svg id="mute-icon-off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                </button>
+            </div>
         </div>
 
         <button class="btn-talk" id="btn-talk" disabled>
@@ -247,6 +346,10 @@
         const btnTalk = document.getElementById("btn-talk");
         const timerEl = document.getElementById("timer");
         const errorMsg = document.getElementById("error-msg");
+        const micSelect = document.getElementById("mic-select");
+        const btnMute = document.getElementById("btn-mute");
+        const muteIconOn = document.getElementById("mute-icon-on");
+        const muteIconOff = document.getElementById("mute-icon-off");
 
         // --- State ---
         let ws = null;
@@ -261,6 +364,8 @@
         let spaceHeld = false;
         let mouseHeld = false;
         let stopBroadcastTimer = null;
+        let selectedDeviceId = null;
+        let isMuted = false;
 
         const DEBOUNCE_MS = 500;
         const RECONNECT_MS = 3000;
@@ -345,23 +450,101 @@
         }
 
         // --- Microphone ---
-        async function ensureMicrophone() {
-            if (mediaStream) return true;
+        async function ensureMicrophone(deviceId) {
+            if (mediaStream && !deviceId) return true;
+            if (deviceId && mediaStream) {
+                mediaStream.getTracks().forEach(function (t) { t.stop(); });
+                mediaStream = null;
+            }
             try {
+                var audioConstraints = {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                    channelCount: 1,
+                    sampleRate: 48000,
+                };
+                if (deviceId) {
+                    audioConstraints.deviceId = { exact: deviceId };
+                }
                 mediaStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        channelCount: 1,
-                        sampleRate: 48000,
-                    }
+                    audio: audioConstraints
+                });
+                mediaStream.getAudioTracks().forEach(function (t) {
+                    t.enabled = !isMuted;
                 });
                 return true;
             } catch (e) {
                 showError("Permissão de microfone negada. Verifique as definições do navegador.");
                 btnTalk.disabled = true;
                 return false;
+            }
+        }
+
+        async function populateMicList() {
+            try {
+                var devices = await navigator.mediaDevices.enumerateDevices();
+                var mics = devices.filter(function (d) { return d.kind === "audioinput"; });
+
+                if (mics.length === 0) {
+                    micSelect.innerHTML = '<option value="">Nenhum microfone encontrado</option>';
+                    micSelect.disabled = true;
+                    return;
+                }
+
+                micSelect.disabled = false;
+                micSelect.innerHTML = "";
+                mics.forEach(function (mic, i) {
+                    var opt = document.createElement("option");
+                    opt.value = mic.deviceId;
+                    opt.textContent = mic.label || ("Microfone " + (i + 1));
+                    micSelect.appendChild(opt);
+                });
+
+                var saved = localStorage.getItem("stentor_mic_device_id");
+                if (saved && mics.some(function (m) { return m.deviceId === saved; })) {
+                    micSelect.value = saved;
+                    selectedDeviceId = saved;
+                } else {
+                    selectedDeviceId = mics[0].deviceId;
+                    micSelect.value = selectedDeviceId;
+                }
+            } catch (e) {
+                console.warn("Failed to enumerate devices", e);
+            }
+        }
+
+        async function switchMicrophone(deviceId) {
+            selectedDeviceId = deviceId;
+            localStorage.setItem("stentor_mic_device_id", deviceId);
+
+            if (isBroadcasting) {
+                stopRecording();
+                var ok = await ensureMicrophone(deviceId);
+                if (ok) startRecording();
+            } else {
+                await ensureMicrophone(deviceId);
+            }
+        }
+
+        function toggleMute() {
+            isMuted = !isMuted;
+            if (mediaStream) {
+                mediaStream.getAudioTracks().forEach(function (t) {
+                    t.enabled = !isMuted;
+                });
+            }
+            btnMute.classList.toggle("muted", isMuted);
+            muteIconOn.style.display = isMuted ? "block" : "none";
+            muteIconOff.style.display = isMuted ? "none" : "block";
+            updateTalkButtonState();
+        }
+
+        function updateTalkButtonState() {
+            if (isMuted) {
+                btnTalk.innerHTML = 'Microfone silenciado<span class="btn-hint">clique no botão de silenciar para reativar</span>';
+            } else {
+                btnTalk.innerHTML = 'Manter premido para falar<span class="btn-hint">ou manter Espaço premido</span>';
             }
         }
 
@@ -393,6 +576,7 @@
 
         // --- Broadcast ---
         function startBroadcast() {
+            if (isMuted) return;
             if (isBroadcasting || isRequesting) return;
             if (Date.now() - lastReleaseTime < DEBOUNCE_MS) return;
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -575,13 +759,17 @@
             }
         });
 
-        // Keyboard (Space)
+        // Keyboard (Space + M)
         document.addEventListener("keydown", function (e) {
-            if (e.code !== "Space" || e.repeat || isInputFocused()) return;
-            e.preventDefault();
-            if (!spaceHeld) {
-                spaceHeld = true;
-                startBroadcast();
+            if (isInputFocused()) return;
+            if (e.code === "Space" && !e.repeat) {
+                e.preventDefault();
+                if (!spaceHeld) {
+                    spaceHeld = true;
+                    startBroadcast();
+                }
+            } else if (e.code === "KeyM" && !e.repeat) {
+                toggleMute();
             }
         });
 
@@ -594,10 +782,38 @@
             }
         });
 
+        // Mic select / mute / device change
+        micSelect.addEventListener("change", function () {
+            switchMicrophone(micSelect.value);
+        });
+
+        btnMute.addEventListener("click", function () {
+            toggleMute();
+        });
+
+        navigator.mediaDevices.addEventListener("devicechange", async function () {
+            var previousId = selectedDeviceId;
+            await populateMicList();
+            if (previousId && previousId !== selectedDeviceId) {
+                var selectedLabel = micSelect.options[micSelect.selectedIndex]
+                    ? micSelect.options[micSelect.selectedIndex].textContent
+                    : "predefinido";
+                showError("Microfone desligado. A usar: " + selectedLabel);
+                setTimeout(hideError, 4000);
+                await switchMicrophone(selectedDeviceId);
+            }
+        });
+
         // --- Init ---
         async function init() {
             await loadConfig();
-            await ensureMicrophone();
+            var saved = localStorage.getItem("stentor_mic_device_id");
+            await ensureMicrophone(saved || undefined);
+            await populateMicList();
+            if (selectedDeviceId && selectedDeviceId !== (mediaStream && mediaStream.getAudioTracks()[0] && mediaStream.getAudioTracks()[0].getSettings().deviceId)) {
+                await ensureMicrophone(selectedDeviceId);
+            }
+            updateTalkButtonState();
             connect();
         }
 
