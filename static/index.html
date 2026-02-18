@@ -126,6 +126,7 @@
         .status-dot.busy { background: #ef4444; }
         .status-dot.error { background: #ef4444; }
         .status-dot.disconnected { background: #f59e0b; }
+        .status-dot.preparing { background: #f59e0b; }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -151,6 +152,11 @@
         .btn-talk:active:not(:disabled),
         .btn-talk.active {
             background: #22c55e;
+            transform: scale(0.97);
+        }
+
+        .btn-talk.preparing {
+            background: #f59e0b;
             transform: scale(0.97);
         }
 
@@ -353,6 +359,9 @@
         let stopBroadcastTimer = null;
         let selectedDeviceId = null;
         let isMuted = false;
+        let isPreparing = false;
+        let preparingDing = null;
+        let audioCtx = null;
 
         const DEBOUNCE_MS = 500;
         const RECONNECT_MS = 3000;
@@ -405,7 +414,7 @@
         }
 
         function updateTimer() {
-            if (!isBroadcasting) {
+            if (!isBroadcasting || isPreparing) {
                 timerEl.innerHTML = "";
                 timerEl.classList.remove("warning");
                 return;
@@ -563,6 +572,102 @@
             mediaRecorder = null;
         }
 
+        function ensureAudioContext() {
+            if (!audioCtx || audioCtx.state === "closed") {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === "suspended") {
+                audioCtx.resume();
+            }
+        }
+
+        function playDing() {
+            var ctx = audioCtx;
+            var cancelled = false;
+            var sourceNode = null;
+            var dingRecorder = null;
+
+            var promise = ctx.resume().then(function () {
+                if (cancelled) return false;
+
+                var sampleRate = ctx.sampleRate;
+                var duration = 1.0;
+                var length = Math.ceil(sampleRate * duration);
+                var buffer = ctx.createBuffer(1, length, sampleRate);
+                var data = buffer.getChannelData(0);
+
+                for (var i = 0; i < length; i++) {
+                    var t = i / sampleRate;
+                    var val = 0;
+                    // Tone 1: G4 (392 Hz), 0–0.55s, smooth attack + 150ms cosine fadeout
+                    if (t < 0.55) {
+                        var att1 = 1 - Math.exp(-t * 20);
+                        var dec1 = Math.exp(-t * 3);
+                        var fo1 = t > 0.4 ? 0.5 * (1 + Math.cos(Math.PI * (t - 0.4) / 0.15)) : 1;
+                        val += att1 * dec1 * fo1 * Math.sin(2 * Math.PI * 392 * t);
+                    }
+                    // Tone 2: D4 (294 Hz), 0.4–1.0s, smooth attack + 150ms cosine fadeout
+                    if (t >= 0.4) {
+                        var t2 = t - 0.4;
+                        var att2 = 1 - Math.exp(-t2 * 20);
+                        var dec2 = Math.exp(-t2 * 2.5);
+                        var fo2 = t > 0.85 ? 0.5 * (1 + Math.cos(Math.PI * (t - 0.85) / 0.15)) : 1;
+                        val += att2 * dec2 * fo2 * Math.sin(2 * Math.PI * 294 * t2);
+                    }
+                    data[i] = val * 0.5;
+                }
+
+                // Route through MediaStreamDestination so the ding
+                // is broadcast to the waiting-room speakers via WS
+                var dest = ctx.createMediaStreamDestination();
+                sourceNode = ctx.createBufferSource();
+                sourceNode.buffer = buffer;
+                sourceNode.connect(dest);
+
+                try {
+                    dingRecorder = new MediaRecorder(dest.stream, {
+                        mimeType: "audio/webm;codecs=opus",
+                        audioBitsPerSecond: 128000,
+                    });
+                } catch (e) {
+                    dingRecorder = new MediaRecorder(dest.stream);
+                }
+
+                dingRecorder.ondataavailable = function (event) {
+                    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isBroadcasting) {
+                        ws.send(event.data);
+                    }
+                };
+
+                dingRecorder.start(1000);
+                sourceNode.start();
+
+                return new Promise(function (resolve) {
+                    sourceNode.onended = function () {
+                        if (dingRecorder && dingRecorder.state !== "inactive") {
+                            try { dingRecorder.stop(); } catch (e) {}
+                        }
+                        dingRecorder = null;
+                        resolve(!cancelled);
+                    };
+                });
+            });
+
+            function cancel() {
+                if (cancelled) return;
+                cancelled = true;
+                if (sourceNode) {
+                    try { sourceNode.stop(); sourceNode.disconnect(); } catch (e) {}
+                }
+                if (dingRecorder && dingRecorder.state !== "inactive") {
+                    try { dingRecorder.stop(); } catch (e) {}
+                }
+                dingRecorder = null;
+            }
+
+            return { promise: promise, cancel: cancel };
+        }
+
         // --- Broadcast ---
         function startBroadcast() {
             if (isMuted) return;
@@ -571,6 +676,7 @@
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
             isRequesting = true;
+            ensureAudioContext();
             ws.send(JSON.stringify({ type: "request_broadcast" }));
         }
 
@@ -578,8 +684,15 @@
             lastReleaseTime = Date.now();
             isRequesting = false;
 
+            if (isPreparing && preparingDing) {
+                preparingDing.cancel();
+                preparingDing = null;
+                isPreparing = false;
+            }
+
             if (!isBroadcasting) return;
             btnTalk.classList.remove("active");
+            btnTalk.classList.remove("preparing");
             stopCountdown();
             setStatus("ready", "Pronto");
 
@@ -595,6 +708,11 @@
         }
 
         function forceStopBroadcast() {
+            if (isPreparing && preparingDing) {
+                preparingDing.cancel();
+                preparingDing = null;
+                isPreparing = false;
+            }
             if (stopBroadcastTimer !== null) {
                 clearTimeout(stopBroadcastTimer);
                 stopBroadcastTimer = null;
@@ -607,11 +725,25 @@
         function onBroadcastGranted() {
             isRequesting = false;
             isBroadcasting = true;
-            btnTalk.classList.add("active");
-            setStatus("live", "Em direto");
+            isPreparing = true;
+            btnTalk.classList.add("preparing");
+            setStatus("preparing", "A preparar...");
             hideError();
-            startCountdown(config.broadcast_timeout_seconds);
-            startRecording();
+
+            var ding = playDing();
+            preparingDing = ding;
+
+            ding.promise.then(function (completed) {
+                preparingDing = null;
+                isPreparing = false;
+                btnTalk.classList.remove("preparing");
+                if (completed && isBroadcasting) {
+                    btnTalk.classList.add("active");
+                    setStatus("live", "Em direto");
+                    startCountdown(config.broadcast_timeout_seconds - 1);
+                    startRecording();
+                }
+            });
         }
 
         function onBroadcastDenied() {
@@ -627,6 +759,7 @@
         function onBroadcastEnded() {
             forceStopBroadcast();
             btnTalk.classList.remove("active");
+            btnTalk.classList.remove("preparing");
             stopCountdown();
             setStatus("ready", "Transmissão terminada");
             setTimeout(function () {
