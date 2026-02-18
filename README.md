@@ -48,6 +48,8 @@ All settings are configured via a `.env` file. See `.env.example` for defaults.
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
 | `BROADCAST_TIMEOUT_SECONDS` | `20` | Max broadcast duration in seconds |
+| `AUDIO_DEVICE` | *(empty)* | ALSA audio device for ffplay output (e.g. `hw:0,0`) |
+| `VOLUME_BOOST` | `1.0` | Volume multiplier for audio output (e.g. `3.0` = 3x louder) |
 | `DRY_RUN` | `0` | Set to `1` to skip audio playback (for testing) |
 
 ## Project Structure
@@ -57,12 +59,22 @@ stentor/
 ├── server.py          # FastAPI server, WebSocket handler, ffplay management
 ├── static/
 │   └── index.html     # Single-file web UI (HTML + CSS + JS)
+├── scripts/
+│   ├── install.sh     # Automated production installer
+│   └── update.sh      # Pull latest code and restart service
 ├── .env               # Configuration
 ├── .env.example       # Example config with defaults
 ├── pyproject.toml     # Project metadata and dependencies
-├── DEPLOYMENT.md      # Production deployment guide
+├── QUICKSTART.md      # One-command production install guide
+├── DEPLOYMENT.md      # Full manual deployment guide
+├── LICENSE            # MIT License
 └── README.md
 ```
+
+## Production Deployment
+
+- **[QUICKSTART.md](QUICKSTART.md)** — One-command automated install via `scripts/install.sh`
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — Full manual guide: systemd, HTTPS with Caddy, ALSA, hardware resilience
 
 ## Usage
 
