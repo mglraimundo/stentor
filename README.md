@@ -51,6 +51,7 @@ All settings are configured via a `.env` file. See `.env.example` for defaults.
 | `MAX_RECORDING_SECONDS` | `20` | Max recording duration in seconds |
 | `AUDIO_DEVICE` | *(empty)* | ALSA audio device for ffplay output (e.g. `hw:0,0`) |
 | `VOLUME_BOOST` | `1.0` | Volume multiplier for audio output (e.g. `3.0` = 3x louder) |
+| `NORMALIZE_VOLUME` | `0` | Set to `1` to normalize loudness across messages (EBU R128) |
 | `DRY_RUN` | `0` | Set to `1` to skip audio playback (for testing) |
 
 ## Project Structure

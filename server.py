@@ -31,6 +31,7 @@ MAX_RECORDING_SECONDS = int(os.getenv("MAX_RECORDING_SECONDS", "20"))
 AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "")
 VOLUME_BOOST = os.getenv("VOLUME_BOOST", "1.0")
 DRY_RUN = os.getenv("DRY_RUN", "0") in ("1", "true", "True", "yes")
+NORMALIZE_VOLUME = os.getenv("NORMALIZE_VOLUME", "0") in ("1", "true", "True", "yes")
 QUEUE_GAP_SECONDS = 2
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -115,35 +116,66 @@ async def play_and_wait(filepath: str) -> None:
         await asyncio.to_thread(proc.wait)
 
 
+async def normalize_audio(input_path: str) -> str | None:
+    """Normalize audio loudness using EBU R128 (ffmpeg loudnorm). Returns path or None."""
+    output_path = input_path + ".norm.webm"
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-c:a", "libopus", "-b:a", "64k",
+        output_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return output_path
+    logger.warning(
+        "loudnorm failed (exit %d): %s",
+        proc.returncode, stderr.decode()[-200:],
+    )
+    try:
+        os.unlink(output_path)
+    except OSError:
+        pass
+    return None
+
+
 async def process_queue() -> None:
     """Sequentially play queued audio messages: ding -> message -> gap."""
     while True:
         filepath, client_id = await audio_queue.get()
+        normalized_path = None
         try:
             logger.info(
                 "Playing message from %s (%d queued)",
                 client_id, audio_queue.qsize(),
             )
 
+            if NORMALIZE_VOLUME:
+                normalized_path = await normalize_audio(filepath)
+                if normalized_path:
+                    logger.info("Normalized audio for %s", client_id)
+
+            play_path = normalized_path or filepath
+
             if ding_file_path:
                 await play_and_wait(ding_file_path)
 
-            await play_and_wait(filepath)
-
-            try:
-                os.unlink(filepath)
-            except OSError:
-                pass
-
-            if not audio_queue.empty():
-                await asyncio.sleep(QUEUE_GAP_SECONDS)
+            await play_and_wait(play_path)
 
         except Exception as e:
             logger.error("Error playing audio: %s", e)
-            try:
-                os.unlink(filepath)
-            except OSError:
-                pass
+        finally:
+            for p in (filepath, normalized_path):
+                if p:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+
+        if not audio_queue.empty():
+            await asyncio.sleep(QUEUE_GAP_SECONDS)
 
 
 # --- Lifespan ---

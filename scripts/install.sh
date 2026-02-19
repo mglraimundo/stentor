@@ -95,6 +95,9 @@ AUDIO_DEVICE=${AUDIO_DEVICE}
 # Volume multiplier for audio output (1.0 = no change, 3.0 = 3x louder)
 VOLUME_BOOST=3.0
 
+# Normalize audio loudness across messages (EBU R128 via ffmpeg loudnorm)
+NORMALIZE_VOLUME=0
+
 # Set to 1 to disable ffplay audio output (for testing on WSL or machines without audio)
 DRY_RUN=0
 EOF
