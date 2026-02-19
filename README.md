@@ -1,6 +1,6 @@
 # Stentor
 
-Push-to-talk broadcast system for waiting rooms. Multiple PCs on a local network can broadcast live microphone audio — one at a time — to a server connected to a speaker.
+Push-to-talk broadcast system for waiting rooms. Multiple PCs on a local network record voice messages that play sequentially through a server-connected speaker.
 
 > *In Greek mythology, **Stentor** was a herald of the Greek forces during the Trojan War, whose voice was as powerful as fifty men.*
 
@@ -8,9 +8,10 @@ Push-to-talk broadcast system for waiting rooms. Multiple PCs on a local network
 
 - A Python server runs on a machine connected to a speaker
 - Staff open `http://<server-ip-or-hostname>:<port>` in their browser
-- Press and hold the button (or Space bar) to broadcast voice to the speaker
-- Only one person can broadcast at a time — others see a "busy" indicator
-- Broadcasts auto-stop after a configurable timeout
+- Press and hold the button (or Space bar) to record a voice message
+- Release to send — the message is queued for playback
+- Multiple people can record simultaneously — messages play in arrival order
+- Each message is preceded by a chime and followed by a 2-second gap
 
 ## Quick Start
 
@@ -47,16 +48,17 @@ All settings are configured via a `.env` file. See `.env.example` for defaults.
 | `FAVICON_TEXT_COLOR` | `#FFFFFF` | Favicon text color |
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `8000` | Server port |
-| `BROADCAST_TIMEOUT_SECONDS` | `20` | Max broadcast duration in seconds |
+| `MAX_RECORDING_SECONDS` | `20` | Max recording duration in seconds |
 | `AUDIO_DEVICE` | *(empty)* | ALSA audio device for ffplay output (e.g. `hw:0,0`) |
 | `VOLUME_BOOST` | `1.0` | Volume multiplier for audio output (e.g. `3.0` = 3x louder) |
+| `NORMALIZE_VOLUME` | `0` | Set to `1` to normalize loudness across messages (EBU R128) |
 | `DRY_RUN` | `0` | Set to `1` to skip audio playback (for testing) |
 
 ## Project Structure
 
 ```
 stentor/
-├── server.py          # FastAPI server, WebSocket handler, ffplay management
+├── server.py          # FastAPI server, audio queue, ffplay playback
 ├── static/
 │   └── index.html     # Single-file web UI (HTML + CSS + JS)
 ├── scripts/

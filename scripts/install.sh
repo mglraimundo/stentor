@@ -85,8 +85,8 @@ FAVICON_TEXT_COLOR=#FFFFFF
 HOST=127.0.0.1
 PORT=8000
 
-# Broadcast timeout in seconds
-BROADCAST_TIMEOUT_SECONDS=20
+# Maximum recording duration in seconds
+MAX_RECORDING_SECONDS=20
 
 # ALSA audio device for ffplay output (find with: aplay -l)
 # e.g. hw:0,0 for the first card's analog output
@@ -94,6 +94,9 @@ AUDIO_DEVICE=${AUDIO_DEVICE}
 
 # Volume multiplier for audio output (1.0 = no change, 3.0 = 3x louder)
 VOLUME_BOOST=3.0
+
+# Normalize audio loudness across messages (EBU R128 via ffmpeg loudnorm)
+NORMALIZE_VOLUME=0
 
 # Set to 1 to disable ffplay audio output (for testing on WSL or machines without audio)
 DRY_RUN=0

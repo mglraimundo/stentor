@@ -122,11 +122,9 @@
         }
 
         .status-dot.ready { background: #9ca3af; }
-        .status-dot.live { background: #22c55e; animation: pulse 1s infinite; }
-        .status-dot.busy { background: #ef4444; }
+        .status-dot.recording { background: #22c55e; animation: pulse 1s infinite; }
         .status-dot.error { background: #ef4444; }
         .status-dot.disconnected { background: #f59e0b; }
-        .status-dot.preparing { background: #f59e0b; }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; }
@@ -150,13 +148,8 @@
         }
 
         .btn-talk:active:not(:disabled),
-        .btn-talk.active {
+        .btn-talk.recording {
             background: #22c55e;
-            transform: scale(0.97);
-        }
-
-        .btn-talk.preparing {
-            background: #f59e0b;
             transform: scale(0.97);
         }
 
@@ -324,59 +317,55 @@
     <script>
     (function () {
         // --- Config ---
-        let config = {
+        var config = {
             app_name: "Stentor",
             favicon_letter: "S",
             favicon_bg_color: "#2563EB",
             favicon_text_color: "#FFFFFF",
-            broadcast_timeout_seconds: 20,
+            max_recording_seconds: 20,
         };
 
         // --- DOM ---
-        const appTitle = document.getElementById("app-title");
-        const statusDot = document.getElementById("status-dot");
-        const statusText = document.getElementById("status-text");
-        const btnTalk = document.getElementById("btn-talk");
-        const timerEl = document.getElementById("timer");
-        const errorMsg = document.getElementById("error-msg");
-        const micSelect = document.getElementById("mic-select");
-        const btnMute = document.getElementById("btn-mute");
-        const muteIconOn = document.getElementById("mute-icon-on");
-        const muteIconOff = document.getElementById("mute-icon-off");
+        var appTitle = document.getElementById("app-title");
+        var statusDot = document.getElementById("status-dot");
+        var statusText = document.getElementById("status-text");
+        var btnTalk = document.getElementById("btn-talk");
+        var timerEl = document.getElementById("timer");
+        var errorMsg = document.getElementById("error-msg");
+        var micSelect = document.getElementById("mic-select");
+        var btnMute = document.getElementById("btn-mute");
+        var muteIconOn = document.getElementById("mute-icon-on");
+        var muteIconOff = document.getElementById("mute-icon-off");
 
         // --- State ---
-        let ws = null;
-        let myClientId = null;
-        let mediaStream = null;
-        let mediaRecorder = null;
-        let isBroadcasting = false;
-        let isRequesting = false;
-        let countdownInterval = null;
-        let secondsRemaining = 0;
-        let lastReleaseTime = 0;
-        let spaceHeld = false;
-        let mouseHeld = false;
-        let stopBroadcastTimer = null;
-        let selectedDeviceId = null;
-        let isMuted = false;
-        let isPreparing = false;
-        let preparingDing = null;
-        let audioCtx = null;
+        var ws = null;
+        var mediaStream = null;
+        var mediaRecorder = null;
+        var recordedChunks = [];
+        var isRecording = false;
+        var countdownInterval = null;
+        var secondsRemaining = 0;
+        var lastReleaseTime = 0;
+        var spaceHeld = false;
+        var mouseHeld = false;
+        var selectedDeviceId = null;
+        var isMuted = false;
+        var recordingTimeout = null;
+        var wakeLock = null;
 
-        const DEBOUNCE_MS = 500;
-        const RECONNECT_MS = 3000;
+        var DEBOUNCE_MS = 500;
+        var RECONNECT_MS = 3000;
 
         // --- Favicon ---
         function setFavicon(letter, bgColor, textColor) {
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-                <circle cx="32" cy="32" r="32" fill="${bgColor}"/>
-                <text x="32" y="32" dy=".35em" text-anchor="middle"
-                      font-family="sans-serif" font-weight="bold" font-size="36"
-                      fill="${textColor}">${letter}</text>
-            </svg>`;
-            const blob = new Blob([svg], { type: "image/svg+xml" });
-            const url = URL.createObjectURL(blob);
-            let link = document.querySelector("link[rel='icon']");
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+                '<circle cx="32" cy="32" r="32" fill="' + bgColor + '"/>' +
+                '<text x="32" y="32" dy=".35em" text-anchor="middle" ' +
+                'font-family="sans-serif" font-weight="bold" font-size="36" ' +
+                'fill="' + textColor + '">' + letter + '</text></svg>';
+            var blob = new Blob([svg], { type: "image/svg+xml" });
+            var url = URL.createObjectURL(blob);
+            var link = document.querySelector("link[rel='icon']");
             if (!link) {
                 link = document.createElement("link");
                 link.rel = "icon";
@@ -388,7 +377,7 @@
         // --- Config fetch ---
         async function loadConfig() {
             try {
-                const resp = await fetch("/config");
+                var resp = await fetch("/config");
                 config = await resp.json();
             } catch (e) {
                 console.warn("Failed to load /config, using defaults");
@@ -414,16 +403,16 @@
         }
 
         function updateTimer() {
-            if (!isBroadcasting || isPreparing) {
+            if (!isRecording) {
                 timerEl.innerHTML = "";
                 timerEl.classList.remove("warning");
                 return;
             }
-            const warn = secondsRemaining <= 5;
+            var warn = secondsRemaining <= 5;
             timerEl.classList.toggle("warning", warn);
             timerEl.innerHTML =
-                `<span class="timer-label">${warn ? "A terminar..." : "Tempo restante"}</span>` +
-                `<span>${secondsRemaining}s</span>`;
+                '<span class="timer-label">' + (warn ? "A terminar..." : "Tempo restante") + '</span>' +
+                '<span>' + secondsRemaining + 's</span>';
         }
 
         function startCountdown(seconds) {
@@ -514,13 +503,10 @@
             selectedDeviceId = deviceId;
             localStorage.setItem("stentor_mic_device_id", deviceId);
 
-            if (isBroadcasting) {
-                stopRecording();
-                var ok = await ensureMicrophone(deviceId);
-                if (ok) startRecording();
-            } else {
-                await ensureMicrophone(deviceId);
+            if (isRecording) {
+                stopRecordingSession();
             }
+            await ensureMicrophone(deviceId);
         }
 
         function toggleMute() {
@@ -542,292 +528,146 @@
                 btnTalk.disabled = true;
             } else {
                 btnTalk.innerHTML = 'Manter premido para falar<span class="btn-hint">ou manter Espaço premido</span>';
-                btnTalk.disabled = !mediaStream;
+                btnTalk.disabled = !mediaStream || !ws || ws.readyState !== WebSocket.OPEN;
             }
         }
 
-        function startRecording() {
-            if (!mediaStream || !ws) return;
+        // --- Recording ---
+        function startMediaRecorder() {
+            if (!mediaStream) return;
+            recordedChunks = [];
             try {
                 mediaRecorder = new MediaRecorder(mediaStream, {
                     mimeType: "audio/webm;codecs=opus",
                     audioBitsPerSecond: 64000,
                 });
             } catch (e) {
-                // Fallback if specific mime not supported
                 mediaRecorder = new MediaRecorder(mediaStream);
             }
             mediaRecorder.ondataavailable = function (event) {
-                if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isBroadcasting) {
-                    ws.send(event.data);
+                if (event.data.size > 0) {
+                    recordedChunks.push(event.data);
                 }
             };
-            mediaRecorder.start(250);
+            mediaRecorder.onstop = function () {
+                var chunks = recordedChunks;
+                recordedChunks = [];
+                if (chunks.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
+                    var blob = new Blob(chunks, { type: "audio/webm;codecs=opus" });
+                    ws.send(blob);
+                }
+            };
+            mediaRecorder.start();
         }
 
-        function stopRecording() {
+        function stopMediaRecorder() {
             if (mediaRecorder && mediaRecorder.state !== "inactive") {
                 try { mediaRecorder.stop(); } catch (e) {}
             }
             mediaRecorder = null;
         }
 
-        function ensureAudioContext() {
-            if (!audioCtx || audioCtx.state === "closed") {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (audioCtx.state === "suspended") {
-                audioCtx.resume();
-            }
-        }
-
-        function playDing() {
-            var ctx = audioCtx;
-            var cancelled = false;
-            var sourceNode = null;
-            var dingRecorder = null;
-
-            var promise = ctx.resume().then(function () {
-                if (cancelled) return false;
-
-                var sampleRate = ctx.sampleRate;
-                var duration = 1.0;
-                var length = Math.ceil(sampleRate * duration);
-                var buffer = ctx.createBuffer(1, length, sampleRate);
-                var data = buffer.getChannelData(0);
-
-                for (var i = 0; i < length; i++) {
-                    var t = i / sampleRate;
-                    var val = 0;
-                    // Tone 1: G4 (392 Hz), 0–0.55s, smooth attack + 150ms cosine fadeout
-                    if (t < 0.55) {
-                        var att1 = 1 - Math.exp(-t * 20);
-                        var dec1 = Math.exp(-t * 3);
-                        var fo1 = t > 0.4 ? 0.5 * (1 + Math.cos(Math.PI * (t - 0.4) / 0.15)) : 1;
-                        val += att1 * dec1 * fo1 * Math.sin(2 * Math.PI * 392 * t);
-                    }
-                    // Tone 2: D4 (294 Hz), 0.4–1.0s, smooth attack + 150ms cosine fadeout
-                    if (t >= 0.4) {
-                        var t2 = t - 0.4;
-                        var att2 = 1 - Math.exp(-t2 * 20);
-                        var dec2 = Math.exp(-t2 * 2.5);
-                        var fo2 = t > 0.85 ? 0.5 * (1 + Math.cos(Math.PI * (t - 0.85) / 0.15)) : 1;
-                        val += att2 * dec2 * fo2 * Math.sin(2 * Math.PI * 294 * t2);
-                    }
-                    data[i] = val * 0.5;
-                }
-
-                // Route through MediaStreamDestination so the ding
-                // is broadcast to the waiting-room speakers via WS
-                var dest = ctx.createMediaStreamDestination();
-                sourceNode = ctx.createBufferSource();
-                sourceNode.buffer = buffer;
-                sourceNode.connect(dest);
-
-                try {
-                    dingRecorder = new MediaRecorder(dest.stream, {
-                        mimeType: "audio/webm;codecs=opus",
-                        audioBitsPerSecond: 128000,
-                    });
-                } catch (e) {
-                    dingRecorder = new MediaRecorder(dest.stream);
-                }
-
-                dingRecorder.ondataavailable = function (event) {
-                    if (event.data.size > 0 && ws && ws.readyState === WebSocket.OPEN && isBroadcasting) {
-                        ws.send(event.data);
-                    }
-                };
-
-                dingRecorder.start(1000);
-                sourceNode.start();
-
-                return new Promise(function (resolve) {
-                    sourceNode.onended = function () {
-                        if (dingRecorder && dingRecorder.state !== "inactive") {
-                            try { dingRecorder.stop(); } catch (e) {}
-                        }
-                        dingRecorder = null;
-                        resolve(!cancelled);
-                    };
-                });
-            });
-
-            function cancel() {
-                if (cancelled) return;
-                cancelled = true;
-                if (sourceNode) {
-                    try { sourceNode.stop(); sourceNode.disconnect(); } catch (e) {}
-                }
-                if (dingRecorder && dingRecorder.state !== "inactive") {
-                    try { dingRecorder.stop(); } catch (e) {}
-                }
-                dingRecorder = null;
-            }
-
-            return { promise: promise, cancel: cancel };
-        }
-
-        // --- Broadcast ---
-        function startBroadcast() {
+        // --- Recording session ---
+        function startRecordingSession() {
             if (isMuted) return;
-            if (isBroadcasting || isRequesting) return;
+            if (isRecording) return;
             if (Date.now() - lastReleaseTime < DEBOUNCE_MS) return;
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!mediaStream) return;
 
-            isRequesting = true;
-            ensureAudioContext();
-            ws.send(JSON.stringify({ type: "request_broadcast" }));
-        }
-
-        function stopBroadcast() {
-            lastReleaseTime = Date.now();
-            isRequesting = false;
-
-            if (isPreparing && preparingDing) {
-                preparingDing.cancel();
-                preparingDing = null;
-                isPreparing = false;
-            }
-
-            if (!isBroadcasting) return;
-            btnTalk.classList.remove("active");
-            btnTalk.classList.remove("preparing");
-            stopCountdown();
-            setStatus("ready", "Pronto");
-
-            // Keep isBroadcasting = true for 1s tail so chunks keep being sent
-            stopBroadcastTimer = setTimeout(function () {
-                stopBroadcastTimer = null;
-                isBroadcasting = false;
-                stopRecording();
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: "stop_broadcast" }));
-                }
-            }, 1000);
-        }
-
-        function forceStopBroadcast() {
-            if (isPreparing && preparingDing) {
-                preparingDing.cancel();
-                preparingDing = null;
-                isPreparing = false;
-            }
-            if (stopBroadcastTimer !== null) {
-                clearTimeout(stopBroadcastTimer);
-                stopBroadcastTimer = null;
-            }
-            isBroadcasting = false;
-            isRequesting = false;
-            stopRecording();
-        }
-
-        function onBroadcastGranted() {
-            isRequesting = false;
-            isBroadcasting = true;
-            isPreparing = true;
-            btnTalk.classList.add("preparing");
-            setStatus("preparing", "A preparar...");
+            isRecording = true;
+            btnTalk.classList.add("recording");
+            setStatus("recording", "A gravar");
+            if (navigator.vibrate) navigator.vibrate(30);
             hideError();
+            startCountdown(config.max_recording_seconds);
+            startMediaRecorder();
 
-            var ding = playDing();
-            preparingDing = ding;
-
-            ding.promise.then(function (completed) {
-                preparingDing = null;
-                isPreparing = false;
-                btnTalk.classList.remove("preparing");
-                if (completed && isBroadcasting) {
-                    btnTalk.classList.add("active");
-                    setStatus("live", "Em direto");
-                    startCountdown(config.broadcast_timeout_seconds - 1);
-                    startRecording();
-                }
-            });
+            // Auto-stop at max duration
+            recordingTimeout = setTimeout(function () {
+                recordingTimeout = null;
+                stopRecordingSession();
+            }, config.max_recording_seconds * 1000);
         }
 
-        function onBroadcastDenied() {
-            isRequesting = false;
-            setStatus("busy", "Altifalante ocupado — aguarde");
-            setTimeout(function () {
-                if (!isBroadcasting) {
-                    setStatus("ready", "Pronto");
-                }
-            }, 2000);
-        }
+        function stopRecordingSession() {
+            lastReleaseTime = Date.now();
+            if (!isRecording) return;
 
-        function onBroadcastEnded() {
-            forceStopBroadcast();
-            btnTalk.classList.remove("active");
-            btnTalk.classList.remove("preparing");
+            isRecording = false;
+            btnTalk.classList.remove("recording");
             stopCountdown();
-            setStatus("ready", "Transmissão terminada");
+
+            if (recordingTimeout) {
+                clearTimeout(recordingTimeout);
+                recordingTimeout = null;
+            }
+
+            if (navigator.vibrate) navigator.vibrate([15, 30, 15]);
+            stopMediaRecorder(); // triggers onstop -> sends blob
+
+            setStatus("ready", "A enviar...");
+            // Server will send "queued" message with position, updating status.
+            // Fallback in case server response is missed:
             setTimeout(function () {
-                if (!isBroadcasting) {
-                    setStatus("ready", "Pronto");
-                }
-            }, 2000);
+                if (!isRecording) setStatus("ready", "Pronto");
+            }, 5000);
         }
 
-        function onStateUpdate(data) {
-            if (isBroadcasting) {
-                // We are the active broadcaster, update timer from server
-                if (data.seconds_remaining !== null) {
-                    secondsRemaining = data.seconds_remaining;
-                    updateTimer();
-                }
-                return;
+        function abortRecording() {
+            // Stop without sending (e.g. on disconnect)
+            if (recordingTimeout) {
+                clearTimeout(recordingTimeout);
+                recordingTimeout = null;
             }
-
-            if (data.is_active) {
-                setStatus("busy", "Altifalante ocupado — aguarde");
-                btnTalk.disabled = true;
-            } else {
-                setStatus("ready", "Pronto");
-                btnTalk.disabled = isMuted || !mediaStream;
+            isRecording = false;
+            recordedChunks = []; // discard
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
+                // Remove onstop handler so blob isn't sent
+                mediaRecorder.onstop = null;
+                try { mediaRecorder.stop(); } catch (e) {}
             }
+            mediaRecorder = null;
+            btnTalk.classList.remove("recording");
+            stopCountdown();
         }
 
         // --- WebSocket ---
-        let reconnectTimeout = null;
+        var reconnectTimeout = null;
 
         function connect() {
-            const proto = location.protocol === "https:" ? "wss:" : "ws:";
+            var proto = location.protocol === "https:" ? "wss:" : "ws:";
             ws = new WebSocket(proto + "//" + location.host + "/ws");
 
             ws.onopen = function () {
                 hideError();
                 setStatus("ready", "Pronto");
-                btnTalk.disabled = isMuted || !mediaStream;
+                updateTalkButtonState();
             };
 
             ws.onmessage = function (event) {
                 if (typeof event.data !== "string") return;
-                const data = JSON.parse(event.data);
-
-                switch (data.type) {
-                    case "welcome":
-                        myClientId = data.client_id;
-                        break;
-                    case "broadcast_granted":
-                        if (data.client_id === myClientId) {
-                            onBroadcastGranted();
+                try {
+                    var msg = JSON.parse(event.data);
+                    if (msg.type === "queued") {
+                        var pos = msg.position;
+                        if (pos <= 1) {
+                            setStatus("ready", "Mensagem enviada");
+                        } else {
+                            setStatus("ready", "Na fila (#" + pos + ")");
                         }
-                        break;
-                    case "broadcast_denied":
-                        onBroadcastDenied();
-                        break;
-                    case "broadcast_ended":
-                        onBroadcastEnded();
-                        break;
-                    case "state_update":
-                        onStateUpdate(data);
-                        break;
-                }
+                        setTimeout(function () {
+                            if (!isRecording) setStatus("ready", "Pronto");
+                        }, 3000);
+                    } else if (msg.type === "queue_full") {
+                        showError("Fila cheia. Tente novamente em breve.");
+                        setTimeout(hideError, 4000);
+                    }
+                } catch (e) {}
             };
 
             ws.onclose = function () {
-                if (isBroadcasting || stopBroadcastTimer !== null) forceStopBroadcast();
+                if (isRecording) abortRecording();
                 setStatus("disconnected", "Desligado — a tentar reconectar...");
                 btnTalk.disabled = true;
                 scheduleReconnect();
@@ -848,7 +688,7 @@
 
         // --- Input handlers ---
         function isInputFocused() {
-            const tag = document.activeElement && document.activeElement.tagName;
+            var tag = document.activeElement && document.activeElement.tagName;
             return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
         }
 
@@ -856,19 +696,19 @@
         btnTalk.addEventListener("mousedown", function (e) {
             e.preventDefault();
             mouseHeld = true;
-            startBroadcast();
+            startRecordingSession();
         });
 
         btnTalk.addEventListener("touchstart", function (e) {
             e.preventDefault();
             mouseHeld = true;
-            startBroadcast();
+            startRecordingSession();
         }, { passive: false });
 
         function onPointerRelease() {
             if (mouseHeld) {
                 mouseHeld = false;
-                stopBroadcast();
+                stopRecordingSession();
             }
         }
 
@@ -877,8 +717,13 @@
         btnTalk.addEventListener("mouseleave", function () {
             if (mouseHeld) {
                 mouseHeld = false;
-                stopBroadcast();
+                stopRecordingSession();
             }
+        });
+
+        // Prevent long-press context menu on mobile
+        btnTalk.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
         });
 
         // Keyboard (Space + M)
@@ -888,7 +733,7 @@
                 e.preventDefault();
                 if (!spaceHeld) {
                     spaceHeld = true;
-                    startBroadcast();
+                    startRecordingSession();
                 }
             } else if (e.code === "KeyM" && !e.repeat) {
                 toggleMute();
@@ -900,7 +745,7 @@
             e.preventDefault();
             if (spaceHeld) {
                 spaceHeld = false;
-                stopBroadcast();
+                stopRecordingSession();
             }
         });
 
@@ -927,6 +772,21 @@
             }
         });
 
+        // --- Wake Lock (prevent screen sleep on mobile) ---
+        async function requestWakeLock() {
+            if (!("wakeLock" in navigator)) return;
+            try {
+                wakeLock = await navigator.wakeLock.request("screen");
+                wakeLock.addEventListener("release", function () { wakeLock = null; });
+            } catch (e) {}
+        }
+
+        document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "visible" && !wakeLock) {
+                requestWakeLock();
+            }
+        });
+
         // --- Init ---
         async function init() {
             await loadConfig();
@@ -937,6 +797,7 @@
                 await ensureMicrophone(selectedDeviceId);
             }
             updateTalkButtonState();
+            requestWakeLock();
             connect();
         }
 

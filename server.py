@@ -1,16 +1,21 @@
 import asyncio
 import json
 import logging
+import math
 import os
+import shutil
+import struct
 import subprocess
-import time
+import tempfile
 import uuid
+import wave
+
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-
 from pathlib import Path
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -22,136 +27,180 @@ FAVICON_BG_COLOR = os.getenv("FAVICON_BG_COLOR", "#2563EB")
 FAVICON_TEXT_COLOR = os.getenv("FAVICON_TEXT_COLOR", "#FFFFFF")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
-BROADCAST_TIMEOUT_SECONDS = int(os.getenv("BROADCAST_TIMEOUT_SECONDS", "20"))
+MAX_RECORDING_SECONDS = int(os.getenv("MAX_RECORDING_SECONDS", "20"))
 AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "")
 VOLUME_BOOST = os.getenv("VOLUME_BOOST", "1.0")
 DRY_RUN = os.getenv("DRY_RUN", "0") in ("1", "true", "True", "yes")
+NORMALIZE_VOLUME = os.getenv("NORMALIZE_VOLUME", "0") in ("1", "true", "True", "yes")
+QUEUE_GAP_SECONDS = 2
+MAX_QUEUE_SIZE = 10
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stentor")
 
-app = FastAPI()
-
-# --- Broadcast state ---
-
-active_broadcaster: str | None = None
-broadcast_start_time: float | None = None
-timeout_task: asyncio.Task | None = None
-ffplay_process: subprocess.Popen | None = None
+# --- State ---
+audio_queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 connected_clients: dict[str, WebSocket] = {}
+audio_temp_dir: str = ""
+ding_file_path: str = ""
 
 
-def start_ffplay() -> subprocess.Popen | None:
+# --- Ding generation ---
+
+def generate_ding_wav(path: str) -> None:
+    """Generate a two-tone chime WAV file (G4 then D4)."""
+    sample_rate = 48000
+    duration = 1.0
+    length = int(sample_rate * duration)
+    raw = bytearray()
+
+    for i in range(length):
+        t = i / sample_rate
+        val = 0.0
+        # Tone 1: G4 (392 Hz), 0-0.55s
+        if t < 0.55:
+            att = 1 - math.exp(-t * 20)
+            dec = math.exp(-t * 3)
+            fade = 0.5 * (1 + math.cos(math.pi * (t - 0.4) / 0.15)) if t > 0.4 else 1.0
+            val += att * dec * fade * math.sin(2 * math.pi * 392 * t)
+        # Tone 2: D4 (294 Hz), 0.4-1.0s
+        if t >= 0.4:
+            t2 = t - 0.4
+            att = 1 - math.exp(-t2 * 20)
+            dec = math.exp(-t2 * 2.5)
+            fade = 0.5 * (1 + math.cos(math.pi * (t - 0.85) / 0.15)) if t > 0.85 else 1.0
+            val += att * dec * fade * math.sin(2 * math.pi * 294 * t2)
+
+        s = max(-1.0, min(1.0, val * 0.5))
+        raw.extend(struct.pack("<h", int(s * 32767)))
+
+    with wave.open(path, "w") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(bytes(raw))
+
+
+# --- Audio playback ---
+
+def play_audio_file(filepath: str) -> subprocess.Popen | None:
+    """Spawn ffplay to play an audio file. Returns the process."""
     if DRY_RUN:
-        logger.info("DRY_RUN: skipping ffplay")
+        logger.info("DRY_RUN: would play %s", filepath)
         return None
     try:
         env = os.environ.copy()
         if AUDIO_DEVICE:
             env["AUDIODEV"] = AUDIO_DEVICE
-        proc = subprocess.Popen(
-            ["ffplay", "-nodisp", "-autoexit",
-             "-fflags", "nobuffer", "-analyzeduration", "0", "-probesize", "32",
-             "-af", f"volume={VOLUME_BOOST},alimiter=limit=1:attack=5:release=50,aformat=channel_layouts=stereo",
-             "-i", "pipe:0"],
-            stdin=subprocess.PIPE,
+        return subprocess.Popen(
+            [
+                "ffplay", "-nodisp", "-autoexit",
+                "-af", f"volume={VOLUME_BOOST},"
+                       f"alimiter=limit=1:attack=5:release=50,"
+                       f"aformat=channel_layouts=stereo",
+                filepath,
+            ],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=env,
         )
-        logger.info("ffplay started (pid %d)", proc.pid)
-        return proc
     except FileNotFoundError:
         logger.error("ffplay not found. Install ffmpeg: sudo apt install ffmpeg")
         return None
 
 
-def stop_ffplay() -> None:
-    global ffplay_process
-    if ffplay_process is not None:
-        try:
-            ffplay_process.stdin.close()
-        except Exception:
-            pass
-        try:
-            ffplay_process.terminate()
-            ffplay_process.wait(timeout=2)
-        except Exception:
-            try:
-                ffplay_process.kill()
-            except Exception:
-                pass
-        logger.info("ffplay stopped")
-        ffplay_process = None
+async def play_and_wait(filepath: str) -> None:
+    """Play an audio file and wait for playback to finish."""
+    proc = play_audio_file(filepath)
+    if proc:
+        await asyncio.to_thread(proc.wait)
 
 
-async def broadcast_to_all(message: dict) -> None:
-    payload = json.dumps(message)
-    disconnected = []
-    for cid, ws in connected_clients.items():
-        try:
-            await ws.send_text(payload)
-        except Exception:
-            disconnected.append(cid)
-    for cid in disconnected:
-        connected_clients.pop(cid, None)
-
-
-def get_seconds_remaining() -> int | None:
-    if active_broadcaster is None or broadcast_start_time is None:
-        return None
-    elapsed = time.monotonic() - broadcast_start_time
-    remaining = max(0, BROADCAST_TIMEOUT_SECONDS - int(elapsed))
-    return remaining
-
-
-async def send_state_update() -> None:
-    await broadcast_to_all({
-        "type": "state_update",
-        "is_active": active_broadcaster is not None,
-        "active_client": active_broadcaster,
-        "seconds_remaining": get_seconds_remaining(),
-    })
-
-
-async def end_broadcast(reason: str) -> None:
-    global active_broadcaster, broadcast_start_time, timeout_task
-    was_active = active_broadcaster
-    active_broadcaster = None
-    broadcast_start_time = None
-
-    if timeout_task is not None:
-        timeout_task.cancel()
-        timeout_task = None
-
-    stop_ffplay()
-
-    if was_active:
-        logger.info("Broadcast ended: %s (client: %s)", reason, was_active)
-        await broadcast_to_all({"type": "broadcast_ended", "reason": reason})
-        await send_state_update()
-
-
-async def timeout_countdown(client_id: str) -> None:
+async def normalize_audio(input_path: str) -> str | None:
+    """Normalize audio loudness using EBU R128 (ffmpeg loudnorm). Returns path or None."""
+    output_path = input_path + ".norm.webm"
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-c:a", "libopus", "-b:a", "64k",
+        output_path,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode == 0:
+        return output_path
+    logger.warning(
+        "loudnorm failed (exit %d): %s",
+        proc.returncode, stderr.decode()[-200:],
+    )
     try:
-        await asyncio.sleep(BROADCAST_TIMEOUT_SECONDS)
-        if active_broadcaster == client_id:
-            await end_broadcast("timeout")
-    except asyncio.CancelledError:
+        os.unlink(output_path)
+    except OSError:
         pass
+    return None
 
 
-async def grant_broadcast(client_id: str) -> None:
-    global active_broadcaster, broadcast_start_time, timeout_task, ffplay_process
+async def process_queue() -> None:
+    """Sequentially play queued audio messages: ding -> message -> gap."""
+    while True:
+        filepath, client_id = await audio_queue.get()
+        normalized_path = None
+        try:
+            logger.info(
+                "Playing message from %s (%d queued)",
+                client_id, audio_queue.qsize(),
+            )
 
-    active_broadcaster = client_id
-    broadcast_start_time = time.monotonic()
-    ffplay_process = start_ffplay()
-    timeout_task = asyncio.create_task(timeout_countdown(client_id))
+            if NORMALIZE_VOLUME:
+                normalized_path = await normalize_audio(filepath)
+                if normalized_path:
+                    logger.info("Normalized audio for %s", client_id)
 
-    logger.info("Broadcast granted to %s", client_id)
-    await broadcast_to_all({"type": "broadcast_granted", "client_id": client_id})
-    await send_state_update()
+            play_path = normalized_path or filepath
+
+            if ding_file_path:
+                await play_and_wait(ding_file_path)
+
+            await play_and_wait(play_path)
+
+        except Exception as e:
+            logger.error("Error playing audio: %s", e)
+        finally:
+            for p in (filepath, normalized_path):
+                if p:
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+
+        if not audio_queue.empty():
+            await asyncio.sleep(QUEUE_GAP_SECONDS)
+
+
+# --- Lifespan ---
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global audio_temp_dir, ding_file_path
+
+    audio_temp_dir = tempfile.mkdtemp(prefix="stentor_")
+
+    ding_file_path = os.path.join(audio_temp_dir, "ding.wav")
+    generate_ding_wav(ding_file_path)
+    logger.info("Ding sound ready: %s", ding_file_path)
+
+    task = asyncio.create_task(process_queue())
+    logger.info("Queue processor started")
+
+    yield
+
+    task.cancel()
+    shutil.rmtree(audio_temp_dir, ignore_errors=True)
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 # --- Endpoints ---
@@ -163,7 +212,7 @@ async def get_config():
         "favicon_letter": FAVICON_LETTER,
         "favicon_bg_color": FAVICON_BG_COLOR,
         "favicon_text_color": FAVICON_TEXT_COLOR,
-        "broadcast_timeout_seconds": BROADCAST_TIMEOUT_SECONDS,
+        "max_recording_seconds": MAX_RECORDING_SECONDS,
     })
 
 
@@ -174,16 +223,9 @@ async def websocket_endpoint(ws: WebSocket):
     connected_clients[client_id] = ws
     logger.info("Client connected: %s (total: %d)", client_id, len(connected_clients))
 
-    # Send current state to the newly connected client
     await ws.send_text(json.dumps({
         "type": "welcome",
         "client_id": client_id,
-    }))
-    await ws.send_text(json.dumps({
-        "type": "state_update",
-        "is_active": active_broadcaster is not None,
-        "active_client": active_broadcaster,
-        "seconds_remaining": get_seconds_remaining(),
     }))
 
     try:
@@ -191,39 +233,38 @@ async def websocket_endpoint(ws: WebSocket):
             message = await ws.receive()
 
             if message["type"] == "websocket.receive":
-                if "text" in message:
-                    data = json.loads(message["text"])
-                    msg_type = data.get("type")
-
-                    if msg_type == "request_broadcast":
-                        if active_broadcaster is None:
-                            await grant_broadcast(client_id)
-                        else:
+                if "bytes" in message:
+                    audio_data = message["bytes"]
+                    if DRY_RUN:
+                        logger.info(
+                            "DRY_RUN: received %d bytes from %s",
+                            len(audio_data), client_id,
+                        )
+                    else:
+                        if audio_queue.full():
                             await ws.send_text(json.dumps({
-                                "type": "broadcast_denied",
-                                "reason": "another user is broadcasting",
+                                "type": "queue_full",
                             }))
-
-                    elif msg_type == "stop_broadcast":
-                        if active_broadcaster == client_id:
-                            await end_broadcast("user_stopped")
-
-                elif "bytes" in message:
-                    # Binary audio data
-                    if active_broadcaster == client_id:
-                        audio_data = message["bytes"]
-                        if DRY_RUN:
-                            logger.debug(
-                                "DRY_RUN: received %d bytes from %s",
-                                len(audio_data), client_id,
+                            logger.warning(
+                                "Queue full, rejected message from %s",
+                                client_id,
                             )
-                        elif ffplay_process and ffplay_process.stdin:
-                            try:
-                                ffplay_process.stdin.write(audio_data)
-                                ffplay_process.stdin.flush()
-                            except (BrokenPipeError, OSError):
-                                logger.warning("ffplay pipe broken, ending broadcast")
-                                await end_broadcast("user_stopped")
+                        else:
+                            fd, filepath = tempfile.mkstemp(
+                                suffix=".webm", dir=audio_temp_dir,
+                            )
+                            with os.fdopen(fd, "wb") as f:
+                                f.write(audio_data)
+                            await audio_queue.put((filepath, client_id))
+                            position = audio_queue.qsize()
+                            await ws.send_text(json.dumps({
+                                "type": "queued",
+                                "position": position,
+                            }))
+                            logger.info(
+                                "Queued message from %s (%d bytes, queue: %d)",
+                                client_id, len(audio_data), position,
+                            )
 
             elif message["type"] == "websocket.disconnect":
                 break
@@ -232,9 +273,10 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         connected_clients.pop(client_id, None)
-        logger.info("Client disconnected: %s (total: %d)", client_id, len(connected_clients))
-        if active_broadcaster == client_id:
-            await end_broadcast("user_stopped")
+        logger.info(
+            "Client disconnected: %s (total: %d)",
+            client_id, len(connected_clients),
+        )
 
 
 # Mount static files last so /config and /ws take precedence

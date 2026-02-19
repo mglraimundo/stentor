@@ -285,7 +285,7 @@ sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.ta
 
 ### Filesystem Resilience
 
-The app writes nothing to disk (pure audio pass-through), so corruption risk is minimal. Ensure ext4 journaling is enabled (default). Optionally add `noatime` to root partition mount options in `/etc/fstab` to reduce writes.
+The app writes temporary audio files to `/tmp` during playback (auto-cleaned after each message). Corruption risk is minimal. Ensure ext4 journaling is enabled (default). Optionally add `noatime` to root partition mount options in `/etc/fstab` to reduce writes.
 
 ### Watchdog (Optional)
 
