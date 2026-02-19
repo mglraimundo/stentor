@@ -33,7 +33,7 @@ VOLUME_BOOST = os.getenv("VOLUME_BOOST", "1.0")
 DRY_RUN = os.getenv("DRY_RUN", "0") in ("1", "true", "True", "yes")
 NORMALIZE_VOLUME = os.getenv("NORMALIZE_VOLUME", "0") in ("1", "true", "True", "yes")
 QUEUE_GAP_SECONDS = 2
-MAX_QUEUE_SIZE = 50
+MAX_QUEUE_SIZE = 10
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stentor")
