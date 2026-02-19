@@ -208,19 +208,27 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.25rem;
+        }
+
+        .mic-group {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
         }
 
         .btn-mute,
         .btn-mic-toggle {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 30px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
             justify-content: center;
             border: none;
-            border-radius: 6px;
+            border-radius: 0;
             background: transparent;
             cursor: pointer;
             color: #9ca3af;
@@ -228,9 +236,13 @@
             padding: 0;
         }
 
+        .btn-mute {
+            border-right: 1px solid #e5e7eb;
+        }
+
         .btn-mute:hover,
         .btn-mic-toggle:hover {
-            background: #f3f4f6;
+            background: #f9fafb;
             color: #6b7280;
         }
 
@@ -303,26 +315,28 @@
 
         <div class="mic-controls">
             <div class="mic-bar">
-                <button id="btn-mute" class="btn-mute" title="Silenciar microfone (M)">
-                    <svg id="mute-icon-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
-                        <line x1="1" y1="1" x2="23" y2="23"/>
-                        <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
-                        <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .67-.1 1.32-.27 1.93"/>
-                        <line x1="12" y1="19" x2="12" y2="23"/>
-                        <line x1="8" y1="23" x2="16" y2="23"/>
-                    </svg>
-                    <svg id="mute-icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                        <line x1="12" y1="19" x2="12" y2="23"/>
-                        <line x1="8" y1="23" x2="16" y2="23"/>
-                    </svg>
-                </button>
-                <button id="btn-mic-toggle" class="btn-mic-toggle" title="Selecionar microfone">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                </button>
+                <div class="mic-group">
+                    <button id="btn-mute" class="btn-mute" title="Silenciar microfone (M)">
+                        <svg id="mute-icon-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .67-.1 1.32-.27 1.93"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                        <svg id="mute-icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                    </button>
+                    <button id="btn-mic-toggle" class="btn-mic-toggle" title="Selecionar microfone">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="mic-select-wrap" id="mic-select-wrap">
                 <select id="mic-select" class="mic-select">
@@ -419,7 +433,7 @@
             } catch (e) {
                 console.warn("Failed to load /config, using defaults");
             }
-            document.title = config.app_name;
+            document.title = config.app_name === "Stentor" ? "Stentor" : config.app_name + " | Stentor";
             appTitle.textContent = config.app_name;
             setFavicon(config.favicon_letter, config.favicon_bg_color, config.favicon_text_color);
         }
