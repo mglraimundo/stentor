@@ -351,6 +351,7 @@
         var selectedDeviceId = null;
         var isMuted = false;
         var recordingTimeout = null;
+        var wakeLock = null;
 
         var DEBOUNCE_MS = 500;
         var RECONNECT_MS = 3000;
@@ -577,6 +578,7 @@
             isRecording = true;
             btnTalk.classList.add("recording");
             setStatus("recording", "A gravar");
+            if (navigator.vibrate) navigator.vibrate(30);
             hideError();
             startCountdown(config.max_recording_seconds);
             startMediaRecorder();
@@ -601,14 +603,15 @@
                 recordingTimeout = null;
             }
 
+            if (navigator.vibrate) navigator.vibrate([15, 30, 15]);
             stopMediaRecorder(); // triggers onstop -> sends blob
 
-            setStatus("ready", "Mensagem enviada");
+            setStatus("ready", "A enviar...");
+            // Server will send "queued" message with position, updating status.
+            // Fallback in case server response is missed:
             setTimeout(function () {
-                if (!isRecording) {
-                    setStatus("ready", "Pronto");
-                }
-            }, 2000);
+                if (!isRecording) setStatus("ready", "Pronto");
+            }, 5000);
         }
 
         function abortRecording() {
@@ -643,9 +646,24 @@
             };
 
             ws.onmessage = function (event) {
-                // Server only sends welcome; ignore non-string messages
                 if (typeof event.data !== "string") return;
-                // No action needed on welcome for now
+                try {
+                    var msg = JSON.parse(event.data);
+                    if (msg.type === "queued") {
+                        var pos = msg.position;
+                        if (pos <= 1) {
+                            setStatus("ready", "Mensagem enviada");
+                        } else {
+                            setStatus("ready", "Na fila (#" + pos + ")");
+                        }
+                        setTimeout(function () {
+                            if (!isRecording) setStatus("ready", "Pronto");
+                        }, 3000);
+                    } else if (msg.type === "queue_full") {
+                        showError("Fila cheia. Tente novamente em breve.");
+                        setTimeout(hideError, 4000);
+                    }
+                } catch (e) {}
             };
 
             ws.onclose = function () {
@@ -703,6 +721,11 @@
             }
         });
 
+        // Prevent long-press context menu on mobile
+        btnTalk.addEventListener("contextmenu", function (e) {
+            e.preventDefault();
+        });
+
         // Keyboard (Space + M)
         document.addEventListener("keydown", function (e) {
             if (isInputFocused()) return;
@@ -749,6 +772,21 @@
             }
         });
 
+        // --- Wake Lock (prevent screen sleep on mobile) ---
+        async function requestWakeLock() {
+            if (!("wakeLock" in navigator)) return;
+            try {
+                wakeLock = await navigator.wakeLock.request("screen");
+                wakeLock.addEventListener("release", function () { wakeLock = null; });
+            } catch (e) {}
+        }
+
+        document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "visible" && !wakeLock) {
+                requestWakeLock();
+            }
+        });
+
         // --- Init ---
         async function init() {
             await loadConfig();
@@ -759,6 +797,7 @@
                 await ensureMicrophone(selectedDeviceId);
             }
             updateTalkButtonState();
+            requestWakeLock();
             connect();
         }
 

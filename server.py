@@ -33,12 +33,13 @@ VOLUME_BOOST = os.getenv("VOLUME_BOOST", "1.0")
 DRY_RUN = os.getenv("DRY_RUN", "0") in ("1", "true", "True", "yes")
 NORMALIZE_VOLUME = os.getenv("NORMALIZE_VOLUME", "0") in ("1", "true", "True", "yes")
 QUEUE_GAP_SECONDS = 2
+MAX_QUEUE_SIZE = 50
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stentor")
 
 # --- State ---
-audio_queue: asyncio.Queue = asyncio.Queue()
+audio_queue: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE_SIZE)
 connected_clients: dict[str, WebSocket] = {}
 audio_temp_dir: str = ""
 ding_file_path: str = ""
@@ -240,16 +241,30 @@ async def websocket_endpoint(ws: WebSocket):
                             len(audio_data), client_id,
                         )
                     else:
-                        fd, filepath = tempfile.mkstemp(
-                            suffix=".webm", dir=audio_temp_dir,
-                        )
-                        with os.fdopen(fd, "wb") as f:
-                            f.write(audio_data)
-                        await audio_queue.put((filepath, client_id))
-                        logger.info(
-                            "Queued message from %s (%d bytes, queue: %d)",
-                            client_id, len(audio_data), audio_queue.qsize(),
-                        )
+                        if audio_queue.full():
+                            await ws.send_text(json.dumps({
+                                "type": "queue_full",
+                            }))
+                            logger.warning(
+                                "Queue full, rejected message from %s",
+                                client_id,
+                            )
+                        else:
+                            fd, filepath = tempfile.mkstemp(
+                                suffix=".webm", dir=audio_temp_dir,
+                            )
+                            with os.fdopen(fd, "wb") as f:
+                                f.write(audio_data)
+                            await audio_queue.put((filepath, client_id))
+                            position = audio_queue.qsize()
+                            await ws.send_text(json.dumps({
+                                "type": "queued",
+                                "position": position,
+                            }))
+                            logger.info(
+                                "Queued message from %s (%d bytes, queue: %d)",
+                                client_id, len(audio_data), position,
+                            )
 
             elif message["type"] == "websocket.disconnect":
                 break
