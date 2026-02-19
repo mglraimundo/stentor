@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -62,14 +63,22 @@ def generate_ding_wav(path: str) -> None:
             att = 1 - math.exp(-t * 20)
             dec = math.exp(-t * 3)
             fade = 0.5 * (1 + math.cos(math.pi * (t - 0.4) / 0.15)) if t > 0.4 else 1.0
-            val += att * dec * fade * math.sin(2 * math.pi * 392 * t)
+            val += att * dec * fade * (
+                math.sin(2 * math.pi * 392 * t)
+                + 0.3 * math.sin(2 * math.pi * 784 * t)
+                + 0.1 * math.sin(2 * math.pi * 1176 * t)
+            )
         # Tone 2: D4 (294 Hz), 0.4-1.0s
         if t >= 0.4:
             t2 = t - 0.4
             att = 1 - math.exp(-t2 * 20)
             dec = math.exp(-t2 * 2.5)
             fade = 0.5 * (1 + math.cos(math.pi * (t - 0.85) / 0.15)) if t > 0.85 else 1.0
-            val += att * dec * fade * math.sin(2 * math.pi * 294 * t2)
+            val += att * dec * fade * (
+                math.sin(2 * math.pi * 294 * t2)
+                + 0.3 * math.sin(2 * math.pi * 588 * t2)
+                + 0.1 * math.sin(2 * math.pi * 882 * t2)
+            )
 
         s = max(-1.0, min(1.0, val * 0.5))
         raw.extend(struct.pack("<h", int(s * 32767)))
@@ -95,7 +104,9 @@ def play_audio_file(filepath: str) -> subprocess.Popen | None:
         return subprocess.Popen(
             [
                 "ffplay", "-nodisp", "-autoexit",
-                "-af", f"volume={VOLUME_BOOST},"
+                "-af", f"highpass=f=80,"
+                       f"acompressor=threshold=-18dB:ratio=3:attack=5:release=100:makeup=2dB,"
+                       f"volume={VOLUME_BOOST},"
                        f"alimiter=limit=1:attack=5:release=50,"
                        f"aformat=channel_layouts=stereo",
                 filepath,
@@ -118,22 +129,54 @@ async def play_and_wait(filepath: str) -> None:
 
 
 async def normalize_audio(input_path: str) -> str | None:
-    """Normalize audio loudness using EBU R128 (ffmpeg loudnorm). Returns path or None."""
-    output_path = input_path + ".norm.webm"
-    proc = await asyncio.create_subprocess_exec(
+    """Normalize audio loudness using EBU R128 two-pass loudnorm. Returns path or None."""
+    # Pass 1: measure loudness stats
+    proc1 = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-i", input_path,
-        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-c:a", "libopus", "-b:a", "64k",
+        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+        "-vn", "-f", "null", "-",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr1 = await proc1.communicate()
+    if proc1.returncode != 0:
+        logger.warning("loudnorm pass 1 failed (exit %d)", proc1.returncode)
+        return None
+
+    match = re.search(r'\{[^{}]+\}', stderr1.decode(), re.DOTALL)
+    if not match:
+        logger.warning("loudnorm pass 1: could not parse JSON stats")
+        return None
+    try:
+        stats = json.loads(match.group())
+    except json.JSONDecodeError:
+        logger.warning("loudnorm pass 1: JSON decode error")
+        return None
+
+    # Pass 2: apply normalization using measured values for accuracy
+    output_path = input_path + ".norm.webm"
+    af = (
+        f"loudnorm=I=-16:TP=-1.5:LRA=11:linear=true"
+        f":measured_I={stats['input_i']}"
+        f":measured_TP={stats['input_tp']}"
+        f":measured_LRA={stats['input_lra']}"
+        f":measured_thresh={stats['input_thresh']}"
+        f":offset={stats['target_offset']}"
+    )
+    proc2 = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", af,
+        "-c:a", "libopus", "-b:a", "96k",
         output_path,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
-    _, stderr = await proc.communicate()
-    if proc.returncode == 0:
+    _, stderr2 = await proc2.communicate()
+    if proc2.returncode == 0:
         return output_path
     logger.warning(
-        "loudnorm failed (exit %d): %s",
-        proc.returncode, stderr.decode()[-200:],
+        "loudnorm pass 2 failed (exit %d): %s",
+        proc2.returncode, stderr2.decode()[-200:],
     )
     try:
         os.unlink(output_path)
