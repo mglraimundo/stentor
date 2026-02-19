@@ -75,8 +75,8 @@ def generate_ding_wav(path: str) -> None:
         s = max(-1.0, min(1.0, val * 0.5))
         raw.extend(struct.pack("<h", int(s * 32767)))
 
-    # 50ms of silence so the audio driver can flush cleanly
-    raw.extend(b"\x00\x00" * int(sample_rate * 0.05))
+    # 100ms of silence so the audio driver can flush cleanly
+    raw.extend(b"\x00\x00" * int(sample_rate * 0.10))
 
     with wave.open(path, "w") as wf:
         wf.setnchannels(1)
