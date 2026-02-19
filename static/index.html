@@ -433,7 +433,7 @@
             } catch (e) {
                 console.warn("Failed to load /config, using defaults");
             }
-            document.title = config.app_name;
+            document.title = config.app_name === "Stentor" ? "Stentor" : config.app_name + " | Stentor";
             appTitle.textContent = config.app_name;
             setFavicon(config.favicon_letter, config.favicon_bg_color, config.favicon_text_color);
         }
