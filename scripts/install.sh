@@ -85,8 +85,8 @@ FAVICON_TEXT_COLOR=#FFFFFF
 HOST=127.0.0.1
 PORT=8000
 
-# Broadcast timeout in seconds
-BROADCAST_TIMEOUT_SECONDS=20
+# Maximum recording duration in seconds
+MAX_RECORDING_SECONDS=20
 
 # ALSA audio device for ffplay output (find with: aplay -l)
 # e.g. hw:0,0 for the first card's analog output
