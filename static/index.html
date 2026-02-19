@@ -539,7 +539,7 @@
             try {
                 mediaRecorder = new MediaRecorder(mediaStream, {
                     mimeType: "audio/webm;codecs=opus",
-                    audioBitsPerSecond: 64000,
+                    audioBitsPerSecond: 96000,
                 });
             } catch (e) {
                 mediaRecorder = new MediaRecorder(mediaStream);
