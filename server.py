@@ -53,8 +53,9 @@ def generate_ding_wav(path: str) -> None:
     sample_rate = 48000
     duration = 1.0
     length = int(sample_rate * duration)
-    raw = bytearray()
 
+    # First pass: collect raw samples
+    samples = []
     for i in range(length):
         t = i / sample_rate
         val = 0.0
@@ -71,8 +72,17 @@ def generate_ding_wav(path: str) -> None:
             dec = math.exp(-t2 * 2.5)
             fade = 0.5 * (1 + math.cos(math.pi * (t - 0.85) / 0.15)) if t > 0.85 else 1.0
             val += att * dec * fade * math.sin(2 * math.pi * 294 * t2)
+        samples.append(val)
 
-        s = max(-1.0, min(1.0, val * 0.5))
+    # Second pass: peak-normalize to -3 dBFS so the ding is consistently loud
+    # regardless of synthesis amplitude; headroom left for the playback limiter
+    peak = max(abs(v) for v in samples)
+    target_peak = 10 ** (-3 / 20)  # ≈ 0.708
+    scale = target_peak / peak if peak > 0 else 1.0
+
+    raw = bytearray()
+    for val in samples:
+        s = max(-1.0, min(1.0, val * scale))
         raw.extend(struct.pack("<h", int(s * 32767)))
 
     # 100ms of silence so the audio driver can flush cleanly
