@@ -63,22 +63,14 @@ def generate_ding_wav(path: str) -> None:
             att = 1 - math.exp(-t * 20)
             dec = math.exp(-t * 3)
             fade = 0.5 * (1 + math.cos(math.pi * (t - 0.4) / 0.15)) if t > 0.4 else 1.0
-            val += att * dec * fade * (
-                math.sin(2 * math.pi * 392 * t)
-                + 0.3 * math.sin(2 * math.pi * 784 * t)
-                + 0.1 * math.sin(2 * math.pi * 1176 * t)
-            )
+            val += att * dec * fade * math.sin(2 * math.pi * 392 * t)
         # Tone 2: D4 (294 Hz), 0.4-1.0s
         if t >= 0.4:
             t2 = t - 0.4
             att = 1 - math.exp(-t2 * 20)
             dec = math.exp(-t2 * 2.5)
             fade = 0.5 * (1 + math.cos(math.pi * (t - 0.85) / 0.15)) if t > 0.85 else 1.0
-            val += att * dec * fade * (
-                math.sin(2 * math.pi * 294 * t2)
-                + 0.3 * math.sin(2 * math.pi * 588 * t2)
-                + 0.1 * math.sin(2 * math.pi * 882 * t2)
-            )
+            val += att * dec * fade * math.sin(2 * math.pi * 294 * t2)
 
         s = max(-1.0, min(1.0, val * 0.5))
         raw.extend(struct.pack("<h", int(s * 32767)))
