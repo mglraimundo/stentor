@@ -41,7 +41,7 @@ apt-get install -y ffmpeg alsa-utils curl git
 # [2/8] User setup
 # ---------------------------------------------------------------------------
 echo "[2/8] Creating broadcast user..."
-useradd -m -s /bin/bash broadcast 2>/dev/null || true
+useradd -m -s /usr/sbin/nologin broadcast 2>/dev/null || true
 usermod -aG audio broadcast
 
 if [ ! -f /home/broadcast/.local/bin/uv ]; then

@@ -30,11 +30,15 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 MAX_RECORDING_SECONDS = int(os.getenv("MAX_RECORDING_SECONDS", "20"))
 AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "")
-VOLUME_BOOST = os.getenv("VOLUME_BOOST", "1.0")
+try:
+    VOLUME_BOOST = float(os.getenv("VOLUME_BOOST", "1.0"))
+except ValueError:
+    raise ValueError("VOLUME_BOOST must be a number (e.g. 1.0, 3.0)")
 DRY_RUN = os.getenv("DRY_RUN", "0") in ("1", "true", "True", "yes")
 NORMALIZE_VOLUME = os.getenv("NORMALIZE_VOLUME", "0") in ("1", "true", "True", "yes")
 QUEUE_GAP_SECONDS = 2
 MAX_QUEUE_SIZE = 10
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB — generous upper bound for a 1-min recording
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("stentor")
@@ -283,7 +287,13 @@ async def websocket_endpoint(ws: WebSocket):
             if message["type"] == "websocket.receive":
                 if "bytes" in message:
                     audio_data = message["bytes"]
-                    if DRY_RUN:
+                    if len(audio_data) > MAX_UPLOAD_BYTES:
+                        await ws.send_text(json.dumps({"type": "error", "message": "recording too large"}))
+                        logger.warning(
+                            "Rejected oversized upload (%d bytes) from %s",
+                            len(audio_data), client_id,
+                        )
+                    elif DRY_RUN:
                         logger.info(
                             "DRY_RUN: received %d bytes from %s",
                             len(audio_data), client_id,
