@@ -13,7 +13,7 @@ sudo apt install ffmpeg alsa-utils
 ## 2. Create a Dedicated User
 
 ```bash
-sudo useradd -m -s /bin/bash broadcast
+sudo useradd -m -s /usr/sbin/nologin broadcast
 sudo usermod -aG audio broadcast
 
 # Install uv for the broadcast user
