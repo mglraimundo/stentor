@@ -25,7 +25,7 @@ sudo STENTOR_DOMAIN=stentor.example.com \
 Do these manually first — the script can't automate them:
 
 1. **Find your audio device:** `aplay -l` (pick the analog output, e.g. card 0, device 0)
-2. **DNS A record:** point your domain to the server's LAN IP
+2. **DNS A record:** point your domain to the server's LAN IP — set to **"DNS Only"** (grey cloud) and **TTL 1 min** in Cloudflare
 3. **DHCP reservation:** assign the server a static IP on your router
 4. **BIOS auto-power-on:** set "After Power Loss" to "Power On" in BIOS
 
