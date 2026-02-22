@@ -76,7 +76,7 @@ stentor/
 ## Production Deployment
 
 - **[QUICKSTART.md](QUICKSTART.md)** — One-command automated install via `scripts/install.sh`
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** — Full manual guide: systemd, HTTPS with Caddy, ALSA, hardware resilience
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** — Full manual guide: systemd, HTTPS with Caddy, DDNS, ALSA, hardware resilience
 
 ## Usage
 
@@ -92,6 +92,7 @@ stentor/
 - No internet required after setup
 - Recommended: set a recognizable hostname (e.g., `stentor-speaker`) so clients can reach the server at `http://stentor-speaker:<port>`
 - Recommended: set a DHCP reservation or static IP for the server so clients always know where to connect
+- DDNS via `ddclient` keeps the DNS A record in sync when the server's IP changes (configured by `scripts/install.sh`)
 
 ## Author
 

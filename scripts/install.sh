@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stentor installer — idempotent, run as root
 # Usage: sudo bash scripts/install.sh
-# Non-interactive: sudo STENTOR_DOMAIN=... STENTOR_CF_TOKEN=... STENTOR_AUDIO_DEVICE=hw:0,0 bash scripts/install.sh
+# Non-interactive: sudo STENTOR_DOMAIN=... STENTOR_CF_TOKEN=... STENTOR_AUDIO_DEVICE=hw:0,0 STENTOR_WIFI_IFACE=wlan0 bash scripts/install.sh
 
 set -euo pipefail
 
@@ -29,6 +29,13 @@ if [ -z "$AUDIO_DEVICE" ]; then
     echo "Available audio devices:"
     aplay -l 2>/dev/null || echo "  (aplay not found yet — will install alsa-utils)"
     read -rp "ALSA audio device (e.g. hw:0,0): " AUDIO_DEVICE
+fi
+
+WIFI_IFACE="${STENTOR_WIFI_IFACE:-}"
+if [ -z "$WIFI_IFACE" ]; then
+    echo "Network interfaces:"
+    ip -br link 2>/dev/null || echo "  (ip not found)"
+    read -rp "Wi-Fi interface for DDNS (e.g. wlan0): " WIFI_IFACE
 fi
 
 # ---------------------------------------------------------------------------
@@ -219,6 +226,35 @@ echo "  - WiFi configuration (if no Ethernet)"
 echo "  See DEPLOYMENT.md for details."
 
 # ---------------------------------------------------------------------------
+# [7.5/8] DDNS for Local Network Hopping
+# ---------------------------------------------------------------------------
+echo "[7.5/8] Configuring ddclient for local IP updates..."
+apt-get install -y ddclient libjson-any-perl
+
+# Extract root zone from domain (assumes standard subdomain.domain.tld structure)
+ROOT_ZONE=$(echo "$DOMAIN" | cut -d'.' -f2-)
+
+cat > /etc/ddclient.conf << EOF
+daemon=300
+syslog=yes
+ssl=yes
+use=if, if=${WIFI_IFACE}
+
+protocol=cloudflare
+zone=${ROOT_ZONE}
+login=token
+password=${CF_TOKEN}
+${DOMAIN}
+EOF
+
+chown root:root /etc/ddclient.conf
+chmod 600 /etc/ddclient.conf
+
+systemctl restart ddclient
+systemctl enable ddclient
+echo "  ddclient configured and enabled."
+
+# ---------------------------------------------------------------------------
 # [8/8] System hardening
 # ---------------------------------------------------------------------------
 echo "[8/8] Applying system settings..."
@@ -246,8 +282,9 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 echo "Installation complete."
-echo "  Stentor: sudo journalctl -u stentor.service -f"
-echo "  Caddy:   sudo journalctl -u caddy.service -f"
-echo "  Access:  https://${DOMAIN}"
+echo "  Stentor:  sudo journalctl -u stentor.service -f"
+echo "  Caddy:    sudo journalctl -u caddy.service -f"
+echo "  ddclient: sudo journalctl -u ddclient -f"
+echo "  Access:   https://${DOMAIN}"
 echo ""
 echo "Remember to complete the manual steps listed in step [7/8] above."

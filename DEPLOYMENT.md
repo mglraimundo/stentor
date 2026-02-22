@@ -225,6 +225,62 @@ sudo systemctl enable --now caddy
 
 Caddy will automatically obtain and renew Let's Encrypt certificates. Clients connect at `https://stentor.yourdomain.com` with full browser trust — no certificates to install on any device.
 
+## 7. DDNS with ddclient
+
+If the server gets its IP via DHCP (common on Wi-Fi or when moving between networks), the DNS A record will go stale whenever the lease changes. `ddclient` watches a local network interface and pushes the current IP to Cloudflare automatically.
+
+### Install ddclient
+
+```bash
+sudo apt install -y ddclient libjson-any-perl
+```
+
+`libjson-any-perl` is required for the Cloudflare v4 API JSON protocol.
+
+### Configure ddclient
+
+Create `/etc/ddclient.conf`:
+
+```ini
+daemon=300                  # Check every 5 minutes
+syslog=yes                  # Log events to syslog
+ssl=yes                     # Require HTTPS for API calls
+use=if, if=wlan0            # Extract IP from local interface (replace with your interface name)
+
+protocol=cloudflare
+zone=yourdomain.com         # The root domain (e.g., example.com)
+login=token                 # Literal string "token", required by Cloudflare v4 API
+password=YOUR_CF_TOKEN      # The API token with Zone:DNS:Edit permissions
+stentor.yourdomain.com      # The specific A record to update
+```
+
+> **Note:** Find your interface name with `ip -br link`. Common names: `wlan0`, `wlp2s0` (Wi-Fi), `eth0`, `enp0s25` (Ethernet). Use the same Cloudflare API token provisioned for Caddy.
+
+### Secure the config
+
+The file stores the API token in plaintext — restrict access:
+
+```bash
+sudo chown root:root /etc/ddclient.conf
+sudo chmod 600 /etc/ddclient.conf
+```
+
+### Enable and start
+
+```bash
+sudo systemctl restart ddclient
+sudo systemctl enable ddclient
+```
+
+### Verify
+
+Check that ddclient detected the correct IP:
+
+```bash
+sudo ddclient -query
+sudo journalctl -u ddclient -n 20 --no-pager
+```
+
 ## Networking
 
 ### Hostname (Recommended)
@@ -309,10 +365,11 @@ watchdog-timeout = 30
 1. Power returns → BIOS auto-powers on
 2. Ubuntu boots via GRUB
 3. Network connects (Ethernet/WiFi via Netplan)
-4. Caddy starts → obtains/renews HTTPS cert automatically
-5. `stentor.service` starts → server binds to `127.0.0.1:8000`
-6. ALSA provides audio output directly
-7. Ready — clients connect at `https://stentor.yourdomain.com` (~30-60s from power-on)
+4. `ddclient` starts → pushes current LAN IP to Cloudflare DNS
+5. Caddy starts → obtains/renews HTTPS cert automatically
+6. `stentor.service` starts → server binds to `127.0.0.1:8000`
+7. ALSA provides audio output directly
+8. Ready — clients connect at `https://stentor.yourdomain.com` (~30-60s from power-on)
 
 ## Updating
 
@@ -335,4 +392,10 @@ sudo journalctl -u stentor.service -n 50 --no-pager
 
 # Follow in real time
 sudo journalctl -u stentor.service -f
+
+# Caddy logs
+sudo journalctl -u caddy.service -f
+
+# ddclient logs
+sudo journalctl -u ddclient -f
 ```
