@@ -144,6 +144,11 @@ Add an A record pointing to the server's LAN IP:
 stentor.yourdomain.com → 192.168.1.91
 ```
 
+**Important Cloudflare settings for this record:**
+
+- **Proxy status:** Set to **"DNS Only"** (grey cloud icon). The A record points to a private LAN IP, so Cloudflare's CDN proxy cannot route to it.
+- **TTL:** Change from "Auto" to **1 min**. With a 1-minute TTL and ddclient's 5-minute polling interval, a network hop resolves in at most 6 minutes.
+
 ### Install Caddy with DNS plugin
 
 Caddy provides pre-built binaries with plugins via a download API — no Go installation needed:
@@ -271,6 +276,10 @@ sudo chmod 600 /etc/ddclient.conf
 sudo systemctl restart ddclient
 sudo systemctl enable ddclient
 ```
+
+### Cloudflare record settings
+
+The A record **must** use "DNS Only" (grey cloud) and a TTL of **1 min** — see [DNS setup](#dns-setup) above. With these settings, a DHCP lease change propagates in at most 6 minutes (5-min polling + 1-min TTL).
 
 ### Verify
 

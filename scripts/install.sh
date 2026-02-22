@@ -219,7 +219,7 @@ echo "  caddy.service enabled and started."
 # [7/8] Manual steps (DNS, DHCP, WiFi) — cannot be automated
 # ---------------------------------------------------------------------------
 echo "[7/8] Skipped (manual steps required):"
-echo "  - DNS A record: ${DOMAIN} → <server LAN IP>"
+echo "  - DNS A record: ${DOMAIN} → <server LAN IP> (DNS Only, TTL 1 min)"
 echo "  - DHCP reservation on router"
 echo "  - BIOS: set 'After Power Loss' to 'Power On'"
 echo "  - WiFi configuration (if no Ethernet)"
