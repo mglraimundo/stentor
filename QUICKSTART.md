@@ -8,6 +8,7 @@ Prompts for:
 - **Domain** — the hostname you'll use to access Stentor (e.g. `stentor.example.com`)
 - **Cloudflare API token** — Zone:DNS:Edit permission ([create one here](https://dash.cloudflare.com/profile/api-tokens))
 - **ALSA audio device** — the output device for audio playback (e.g. `hw:0,0`)
+- **Wi-Fi interface** — the network interface for DDNS IP detection (e.g. `wlan0`; find with `ip -br link`)
 
 **Non-interactive** (for scripted or repeated installs):
 
@@ -15,6 +16,7 @@ Prompts for:
 sudo STENTOR_DOMAIN=stentor.example.com \
      STENTOR_CF_TOKEN=your-token-here \
      STENTOR_AUDIO_DEVICE=hw:0,0 \
+     STENTOR_WIFI_IFACE=wlan0 \
      bash scripts/install.sh
 ```
 
