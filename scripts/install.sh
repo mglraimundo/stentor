@@ -219,6 +219,35 @@ echo "  - WiFi configuration (if no Ethernet)"
 echo "  See DEPLOYMENT.md for details."
 
 # ---------------------------------------------------------------------------
+# [7.5/8] DDNS for Local Network Hopping
+# ---------------------------------------------------------------------------
+echo "[7.5/8] Configuring ddclient for local IP updates..."
+apt-get install -y ddclient libjson-any-perl
+
+# Extract root zone from domain (assumes standard subdomain.domain.tld structure)
+ROOT_ZONE=$(echo "$DOMAIN" | cut -d'.' -f2-)
+
+cat > /etc/ddclient.conf << EOF
+daemon=300
+syslog=yes
+ssl=yes
+use=if, if=wlan0
+
+protocol=cloudflare
+zone=${ROOT_ZONE}
+login=token
+password=${CF_TOKEN}
+${DOMAIN}
+EOF
+
+chown root:root /etc/ddclient.conf
+chmod 600 /etc/ddclient.conf
+
+systemctl restart ddclient
+systemctl enable ddclient
+echo "  ddclient configured and enabled."
+
+# ---------------------------------------------------------------------------
 # [8/8] System hardening
 # ---------------------------------------------------------------------------
 echo "[8/8] Applying system settings..."
