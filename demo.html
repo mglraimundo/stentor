@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stentor — Demo</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f3f4f6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+
+        .card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+            padding: 2.5rem 2rem;
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            display: inline-block;
+            font-size: 1.4rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #2563eb;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 0.6rem 1.8rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .demo-badge {
+            font-size: 0.7rem;
+            font-weight: 500;
+            color: #92400e;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 6px;
+            padding: 0.25rem 0.7rem;
+            margin-bottom: 1.5rem;
+        }
+
+        footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #9ca3af;
+            line-height: 1.6;
+        }
+
+        footer a { color: #6b7280; text-decoration: none; font-weight: 600; }
+        footer a:hover { color: #2563eb; }
+
+        .tooltip-wrap { position: relative; display: inline-block; }
+
+        .tooltip-wrap .tooltip {
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%) translateY(4px);
+            background: #1f2937;
+            color: #f3f4f6;
+            font-size: 0.7rem;
+            font-weight: 400;
+            line-height: 1.5;
+            padding: 0.6rem 0.8rem;
+            border-radius: 8px;
+            width: 240px;
+            text-align: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+
+        .tooltip-wrap .tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #1f2937;
+        }
+
+        .tooltip-wrap:hover .tooltip {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            min-height: 1.75rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.ready { background: #9ca3af; }
+        .status-dot.recording { background: #22c55e; animation: pulse 1s infinite; }
+        .status-dot.playing { background: #2563eb; animation: pulse 1s infinite; }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+        .btn-talk {
+            width: 100%;
+            padding: 1.25rem 1rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            transition: background 0.15s, transform 0.1s;
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .btn-talk:active:not(:disabled),
+        .btn-talk.recording {
+            background: #22c55e;
+            transform: scale(0.97);
+        }
+
+        .btn-talk:disabled {
+            background: #d1d5db;
+            color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .btn-hint {
+            display: block;
+            margin-top: 0.35rem;
+            font-size: 0.8rem;
+            font-weight: 400;
+            opacity: 0.8;
+        }
+
+        .timer {
+            margin-top: 1.5rem;
+            font-size: 2rem;
+            font-weight: 700;
+            color: #111827;
+            min-height: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .timer-label {
+            font-size: 0.85rem;
+            font-weight: 400;
+            color: #6b7280;
+        }
+
+        .timer.warning { color: #ef4444; }
+
+        .error-msg {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            color: #991b1b;
+            font-size: 0.9rem;
+            display: none;
+        }
+
+        .mic-controls { margin-bottom: 1rem; }
+        .mic-bar { display: flex; align-items: center; justify-content: center; }
+
+        .mic-group {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: #fff;
+            overflow: hidden;
+        }
+
+        .btn-mute, .btn-mic-toggle {
+            width: 32px;
+            height: 30px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            cursor: pointer;
+            color: #9ca3af;
+            transition: background 0.15s, color 0.15s;
+            padding: 0;
+        }
+
+        .btn-mute { border-right: 1px solid #e5e7eb; }
+        .btn-mute:hover, .btn-mic-toggle:hover { background: #f9fafb; color: #6b7280; }
+        .btn-mute.muted { color: #ef4444; }
+        .btn-mute.muted:hover { background: #fef2f2; }
+        .btn-mic-toggle svg { transition: transform 0.2s; }
+        .btn-mic-toggle.open { color: #6b7280; }
+        .btn-mic-toggle.open svg { transform: rotate(180deg); }
+
+        .mic-select-wrap {
+            overflow: hidden;
+            max-height: 0;
+            opacity: 0;
+            transition: max-height 0.2s ease, opacity 0.15s ease, margin-top 0.2s ease;
+            margin-top: 0;
+        }
+
+        .mic-select-wrap.open { max-height: 60px; opacity: 1; margin-top: 0.5rem; }
+
+        .mic-select {
+            width: 100%;
+            padding: 0.4rem 0.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            color: #374151;
+            background: #fff;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .mic-select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2); }
+        .mic-select:disabled { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Stentor</h1>
+        <div class="demo-badge">DEMO — o áudio reproduz neste dispositivo</div>
+
+        <div class="status">
+            <span class="status-dot ready" id="status-dot"></span>
+            <span id="status-text">A iniciar...</span>
+        </div>
+
+        <div class="mic-controls">
+            <div class="mic-bar">
+                <div class="mic-group">
+                    <button id="btn-mute" class="btn-mute" title="Silenciar microfone (M)">
+                        <svg id="mute-icon-on" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                            <line x1="1" y1="1" x2="23" y2="23"/>
+                            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/>
+                            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .67-.1 1.32-.27 1.93"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                        <svg id="mute-icon-off" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                    </button>
+                    <button id="btn-mic-toggle" class="btn-mic-toggle" title="Selecionar microfone">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="mic-select-wrap" id="mic-select-wrap">
+                <select id="mic-select" class="mic-select">
+                    <option value="">A carregar...</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-talk" id="btn-talk" disabled>
+            Manter premido para falar
+            <span class="btn-hint">ou manter Espaço premido</span>
+        </button>
+
+        <div class="timer" id="timer"></div>
+        <div class="error-msg" id="error-msg"></div>
+    </div>
+
+    <footer>
+        <span class="tooltip-wrap">
+            <a href="https://github.com/mglraimundo/stentor" target="_blank">Stentor</a>
+            <span class="tooltip">In Greek mythology, Stentor was a herald during the Trojan War whose voice was as powerful as fifty men.</span>
+        </span><br>
+        Desenvolvido por Miguel Raimundo
+    </footer>
+
+    <script>
+    (function () {
+        var MAX_SECONDS = 20;
+
+        /* ---- DOM ---- */
+        var statusDot   = document.getElementById("status-dot");
+        var statusText  = document.getElementById("status-text");
+        var btnTalk     = document.getElementById("btn-talk");
+        var timerEl     = document.getElementById("timer");
+        var errorMsg    = document.getElementById("error-msg");
+        var micSelect   = document.getElementById("mic-select");
+        var micWrap     = document.getElementById("mic-select-wrap");
+        var btnMute     = document.getElementById("btn-mute");
+        var btnMicTog   = document.getElementById("btn-mic-toggle");
+        var muteOn      = document.getElementById("mute-icon-on");
+        var muteOff     = document.getElementById("mute-icon-off");
+
+        /* ---- State ---- */
+        var stream = null, recorder = null, chunks = [];
+        var recording = false, playing = false;
+        var countdown = null, remaining = 0, timeout = null;
+        var spaceHeld = false, mouseHeld = false, muted = false;
+        var audioCtx = null;
+
+        /* ---- Favicon ---- */
+        (function () {
+            var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+                '<circle cx="32" cy="32" r="32" fill="#2563EB"/>' +
+                '<text x="32" y="32" dy=".35em" text-anchor="middle" font-family="sans-serif" font-weight="bold" font-size="36" fill="#fff">S</text></svg>';
+            var link = document.createElement("link");
+            link.rel = "icon";
+            link.href = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+            document.head.appendChild(link);
+        })();
+
+        /* ---- UI helpers ---- */
+        function setStatus(state, text) {
+            statusDot.className = "status-dot " + state;
+            statusText.textContent = text;
+        }
+        function showError(m) { errorMsg.textContent = m; errorMsg.style.display = "block"; }
+        function hideError()  { errorMsg.style.display = "none"; }
+
+        function updateTimer() {
+            if (!recording) { timerEl.innerHTML = ""; timerEl.classList.remove("warning"); return; }
+            var warn = remaining <= 5;
+            timerEl.classList.toggle("warning", warn);
+            timerEl.innerHTML = '<span class="timer-label">' +
+                (warn ? "A terminar..." : "Tempo restante") +
+                '</span><span>' + remaining + 's</span>';
+        }
+
+        function startCountdown() {
+            stopCountdown();
+            remaining = MAX_SECONDS;
+            updateTimer();
+            countdown = setInterval(function () {
+                remaining = Math.max(0, remaining - 1);
+                updateTimer();
+            }, 1000);
+        }
+
+        function stopCountdown() {
+            clearInterval(countdown);
+            countdown = null;
+            timerEl.innerHTML = "";
+            timerEl.classList.remove("warning");
+        }
+
+        function updateBtn() {
+            if (muted) {
+                btnTalk.innerHTML = 'Microfone silenciado<span class="btn-hint">clique no botão de silenciar para reativar</span>';
+                btnTalk.disabled = true;
+            } else {
+                btnTalk.innerHTML = 'Manter premido para falar<span class="btn-hint">ou manter Espaço premido</span>';
+                btnTalk.disabled = !stream || playing;
+            }
+        }
+
+        /* ---- Microphone ---- */
+        async function getMic(deviceId) {
+            if (stream && !deviceId) return true;
+            if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+            try {
+                var c = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 };
+                if (deviceId) c.deviceId = { exact: deviceId };
+                stream = await navigator.mediaDevices.getUserMedia({ audio: c });
+                stream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
+                return true;
+            } catch (e) {
+                showError("Permissão de microfone negada.");
+                btnTalk.disabled = true;
+                return false;
+            }
+        }
+
+        async function listMics() {
+            try {
+                var devs = await navigator.mediaDevices.enumerateDevices();
+                var mics = devs.filter(function (d) { return d.kind === "audioinput"; });
+                micSelect.innerHTML = "";
+                mics.forEach(function (m, i) {
+                    var o = document.createElement("option");
+                    o.value = m.deviceId;
+                    o.textContent = m.label || ("Microfone " + (i + 1));
+                    micSelect.appendChild(o);
+                });
+                micSelect.disabled = mics.length === 0;
+            } catch (e) {}
+        }
+
+        function toggleMute() {
+            muted = !muted;
+            if (stream) stream.getAudioTracks().forEach(function (t) { t.enabled = !muted; });
+            btnMute.classList.toggle("muted", muted);
+            muteOn.style.display  = muted ? "block" : "none";
+            muteOff.style.display = muted ? "none"  : "block";
+            updateBtn();
+        }
+
+        /* ---- Ding (Web Audio API — same G4 → D4 two-tone chime) ---- */
+        function playDing() {
+            return new Promise(function (resolve) {
+                if (!audioCtx) audioCtx = new AudioContext();
+                var ctx = audioCtx;
+                var now = ctx.currentTime;
+
+                // Tone 1: G4 (392 Hz), 0 – 0.55 s
+                var o1 = ctx.createOscillator();
+                var g1 = ctx.createGain();
+                o1.frequency.value = 392;
+                o1.connect(g1); g1.connect(ctx.destination);
+                g1.gain.setValueAtTime(0.001, now);
+                g1.gain.exponentialRampToValueAtTime(0.35, now + 0.04);
+                g1.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+                o1.start(now); o1.stop(now + 0.55);
+
+                // Tone 2: D4 (294 Hz), 0.4 – 1.0 s
+                var o2 = ctx.createOscillator();
+                var g2 = ctx.createGain();
+                o2.frequency.value = 294;
+                o2.connect(g2); g2.connect(ctx.destination);
+                g2.gain.setValueAtTime(0.001, now + 0.4);
+                g2.gain.exponentialRampToValueAtTime(0.35, now + 0.44);
+                g2.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+                o2.start(now + 0.4); o2.stop(now + 1.0);
+
+                o2.onended = resolve;
+            });
+        }
+
+        /* ---- Playback of recorded blob ---- */
+        function playBlob(blob) {
+            return new Promise(function (resolve) {
+                var url = URL.createObjectURL(blob);
+                var a = new Audio(url);
+                a.onended = a.onerror = function () { URL.revokeObjectURL(url); resolve(); };
+                a.play();
+            });
+        }
+
+        /* ---- Recording ---- */
+        function startRec() {
+            if (muted || recording || playing || !stream) return;
+            recording = true;
+            btnTalk.classList.add("recording");
+            setStatus("recording", "A gravar");
+            hideError();
+            startCountdown();
+
+            chunks = [];
+            try {
+                recorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 96000 });
+            } catch (e) {
+                recorder = new MediaRecorder(stream);
+            }
+            recorder.ondataavailable = function (ev) { if (ev.data.size > 0) chunks.push(ev.data); };
+            recorder.start();
+
+            timeout = setTimeout(stopRec, MAX_SECONDS * 1000);
+        }
+
+        function stopRec() {
+            if (!recording) return;
+            recording = false;
+            btnTalk.classList.remove("recording");
+            stopCountdown();
+            clearTimeout(timeout); timeout = null;
+
+            recorder.onstop = async function () {
+                if (chunks.length === 0) { setStatus("ready", "Pronto"); return; }
+                var blob = new Blob(chunks, { type: "audio/webm" });
+                chunks = [];
+
+                playing = true;
+                updateBtn();
+
+                // Simulate queue feedback
+                setStatus("ready", "Na fila (#1)");
+                await new Promise(function (r) { setTimeout(r, 700); });
+
+                // Play ding then message — just like the real speaker would
+                setStatus("playing", "A reproduzir...");
+                await playDing();
+                await playBlob(blob);
+
+                playing = false;
+                setStatus("ready", "Pronto");
+                updateBtn();
+            };
+            recorder.stop();
+        }
+
+        /* ---- Input handlers ---- */
+        function inputFocused() {
+            var t = document.activeElement && document.activeElement.tagName;
+            return t === "INPUT" || t === "TEXTAREA" || t === "SELECT";
+        }
+
+        btnTalk.addEventListener("mousedown",  function (e) { e.preventDefault(); mouseHeld = true; startRec(); });
+        btnTalk.addEventListener("touchstart",  function (e) { e.preventDefault(); mouseHeld = true; startRec(); }, { passive: false });
+        btnTalk.addEventListener("mouseleave",  function ()  { if (mouseHeld) { mouseHeld = false; stopRec(); } });
+        btnTalk.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+        function onRelease() { if (mouseHeld) { mouseHeld = false; stopRec(); } }
+        document.addEventListener("mouseup",  onRelease);
+        document.addEventListener("touchend", onRelease);
+
+        document.addEventListener("keydown", function (e) {
+            if (inputFocused()) return;
+            if (e.code === "Space" && !e.repeat) { e.preventDefault(); if (!spaceHeld) { spaceHeld = true; startRec(); } }
+            else if (e.code === "KeyM" && !e.repeat) toggleMute();
+        });
+        document.addEventListener("keyup", function (e) {
+            if (e.code === "Space" && !inputFocused()) { e.preventDefault(); if (spaceHeld) { spaceHeld = false; stopRec(); } }
+        });
+
+        micSelect.addEventListener("change", function () {
+            getMic(micSelect.value);
+            micWrap.classList.remove("open"); btnMicTog.classList.remove("open");
+        });
+        btnMicTog.addEventListener("click", function () {
+            micWrap.classList.toggle("open"); btnMicTog.classList.toggle("open");
+        });
+        btnMute.addEventListener("click", function () { toggleMute(); btnMute.blur(); });
+
+        /* ---- Init ---- */
+        (async function () {
+            await getMic();
+            await listMics();
+            setStatus("ready", "Pronto");
+            updateBtn();
+        })();
+    })();
+    </script>
+</body>
+</html>
