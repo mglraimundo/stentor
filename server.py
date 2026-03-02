@@ -53,29 +53,39 @@ ding_file_path: str = ""
 # --- Ding generation ---
 
 def generate_ding_wav(path: str) -> None:
-    """Generate a two-tone chime WAV file (G4 then D4)."""
+    """Generate a three-tone ascending chime WAV file (F5 → A5 → C6)."""
     sample_rate = 48000
-    duration = 1.0
+    duration = 1.1
     length = int(sample_rate * duration)
+
+    # Three-tone ascending major triad — classic waiting-room call sign
+    tones = [
+        # (frequency, start, sustain, release)
+        (698.46, 0.00, 0.18, 0.12),  # F5 — first ding
+        (880.00, 0.28, 0.18, 0.12),  # A5 — second ding
+        (1046.5, 0.56, 0.22, 0.18),  # C6 — third ding (slightly longer)
+    ]
 
     # First pass: collect raw samples
     samples = []
     for i in range(length):
         t = i / sample_rate
         val = 0.0
-        # Tone 1: G4 (392 Hz), 0-0.55s
-        if t < 0.55:
-            att = 1 - math.exp(-t * 20)
-            dec = math.exp(-t * 3)
-            fade = 0.5 * (1 + math.cos(math.pi * (t - 0.4) / 0.15)) if t > 0.4 else 1.0
-            val += att * dec * fade * math.sin(2 * math.pi * 392 * t)
-        # Tone 2: D4 (294 Hz), 0.4-1.0s
-        if t >= 0.4:
-            t2 = t - 0.4
-            att = 1 - math.exp(-t2 * 20)
-            dec = math.exp(-t2 * 2.5)
-            fade = 0.5 * (1 + math.cos(math.pi * (t - 0.85) / 0.15)) if t > 0.85 else 1.0
-            val += att * dec * fade * math.sin(2 * math.pi * 294 * t2)
+        for freq, start, sustain, release in tones:
+            if t < start:
+                continue
+            dt = t - start
+            end = sustain + release
+            if dt > end:
+                continue
+            # Sharp attack, gentle decay during sustain, smooth cosine release
+            att = 1 - math.exp(-dt * 60)
+            if dt < sustain:
+                env = att * math.exp(-dt * 1.5)
+            else:
+                rel_t = (dt - sustain) / release
+                env = att * math.exp(-sustain * 1.5) * 0.5 * (1 + math.cos(math.pi * rel_t))
+            val += env * math.sin(2 * math.pi * freq * dt)
         samples.append(val)
 
     # Second pass: peak-normalize to -3 dBFS so the ding is consistently loud
